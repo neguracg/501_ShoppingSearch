@@ -606,6 +606,44 @@ def _resolve_amount(values: dict[float, bool], count: int) -> float | None:
     return None
 
 
+# WP11-4: 型番の語（英字の後ろに数字が続く、ASCII だけの語。IC6CL80・ICBK80L・LR6XJ/20SW）。
+# 量の語（500ml・2l・1kg）は先頭が数字なので型番の語に入らない
+_MODEL_WORD = re.compile(r"[a-z0-9\-_./]*[a-z][a-z\-_./]*[0-9][a-z0-9\-_./]*")
+_DIGIT_RUN = re.compile(r"[0-9]+")
+MODEL_DIGITS_MIN = 2   # 1 桁の数字は No.1・Type2・LR6 のように型番以外にも普通に現れるので同一性の根拠にしない
+
+
+def _standalone_measure_digits_in_model(s: str, groups: list[_Group]) -> bool:
+    """WP11-4（WP9 E1 の拡張）: 単独で立つ内容量（×・入・空白の連結で個数などとつながらない）の数字が、同じ題名の
+    型番の語の内側に数字として現れるか。IC6CL80 の『80』と『80L』のように、型番に単位が付かず E1（同じ量の同一性）で
+    見えない形。独立した量か型番の一部か決められないので low（P0）。鎖の一部の量は型番の言い直しとして普通に書かれるので
+    掛けない（E1 と同じ）。"""
+    singles = []
+    for g in groups:
+        if len(g.toks) == 1 and g.toks[0].kind == "measure":
+            m = re.match(r"[0-9][0-9,]*(?:\.[0-9]+)?", s[g.toks[0].start:g.toks[0].end])
+            if m:
+                singles.append((g.toks[0], m.group().replace(",", "")))
+    if not singles:
+        return False
+    for w in re.finditer(r"\S+", s):
+        if not _MODEL_WORD.fullmatch(w.group()):
+            continue
+        for run in _DIGIT_RUN.finditer(w.group()):
+            if len(run.group()) < MODEL_DIGITS_MIN:
+                continue
+            for tok, raw in singles:
+                if w.start() <= tok.start < w.end():
+                    continue                              # 量そのものの語
+                try:
+                    same = float(raw) == float(run.group())
+                except ValueError:
+                    continue
+                if same:
+                    return True
+    return False
+
+
 def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     """商品名 → 数量。basis（比べる単位）が内容量の次元で、名前にその次元の内容量があればそれを
     content_* に使う（S5）。省略時は最初に書かれた次元。"""
@@ -630,6 +668,8 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     # 型番だけの題名（独立した 80L が無い）は従来どおり量にしない
     if embedded and any(len(g.toks) == 1 and g.toks[0].kind == "measure"
                         and ("measure", g.toks[0].dim, round(g.toks[0].n, 9)) in embedded for g in groups):
+        return _low(s.strip()[:80])
+    if _standalone_measure_digits_in_model(s, groups):      # WP11-4: 型番に単位が付かない形（IC6CL80 … 80L）
         return _low(s.strip()[:80])
     evidence = " / ".join(dict.fromkeys(s[g.toks[0].start:g.toks[-1].end].strip() for g in groups))
     if flags and groups:                 # 食い違い・倍数の落ち（P0: 失敗の向きは単価不明）
