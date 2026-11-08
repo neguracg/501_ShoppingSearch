@@ -6,6 +6,7 @@
 - 正本: docs/SPEC.md（AC1〜AC12、公開Web は AC-W1〜W11）、指示書: plans/WP3〜WP9（最新は plans/WP9_ex_real_title_highs.md）、経緯: docs/WORKLOG.md / DECISIONS.md / BUGLOG.md。
 - 数量の高信頼は「全ての読み方が同じ総数を指す時だけ」（SPEC §7 P0）。誤読は『偽の最安』ではなく『単価不明』に倒す。数量の規則を足す前に P0〜P7 と矛盾しないか見る（足し算で誤り 16→50 件に悪化した経緯は BUGLOG A1・A1′・A2・A3・A4・A5）。数え語は直後の文字で個数かを決める（P5。語ごとの除外リストを足さない）。単価の丸め・整形は pricing.py が持つ。
 - 道具は商品の意味を持たない（SPEC §7・§8）。持つのは「個数×内容量の読み取りと単位換算（quantity.py の UNITS / DISPLAY / COUNTERS 表）」と「含む語・除く語での絞り込み」だけ。仕様の違い（濃縮・層数・型番・色など）は判定せず、数量は商品名からの読み取りで誤ることがある旨とあわせて、caveats に常に2行出す。
+- **WP11（worktree wp11-desc-caption・本番未反映・レビュー前）**: ①ツール説明（search_products・compare_offers）に『商品の種類・仕様は判定しない／confidence が high でない・unit_price_outlier の候補は最安・おすすめにしない／送料不明を送料込み最安と呼ばない』を追加（mcp_server._NOT_JUDGED・SPEC §10）。②商品説明文を数量の2つ目の読み取り元にする案を実 API で測り『入れない』が推奨（docs/WORKLOG.md の WP11-2 行。説明文の食い違いの本当の誤りは 12%）。③1 文字の語の誤り文を実際に弾いた語・直前の語につないだ形にした（inputs.too_short_message・SPEC §10 は入力の全文を入れない原則の例外を明記）。④単独の内容量の数字が型番の語（IC6CL80・FAC580）の内側にも現れる時は low（SPEC R8。容量が型番に入る電源・充電器も low になるトレードオフ）。指示書: plans/WP11_tool_desc_and_caption_probe.md。
 - **WP10（単価の外れ値の網。実装・試験済み・本番未反映）**: 単位価格が出ている候補が 4 件以上ある比較グループで、単位価格が中央値の 1/10 未満の候補（`Offer.unit_price_outlier`）を「数量の読み違いの疑い」として `cheapest_unit_price`・`cheapest_for_quantity` から外す（一覧には残し、公開Web・公開MCP・CLI に要確認の表示、caveats に件数）。判定は `pricing.mark_unit_price_outliers` の1か所。N=4・K=10 は実 API 99 検索・1,429 件の実測表で決めた（SPEC §8「単価の外れ値の N・K」。K=10→20 で誤検知 6→1・取りこぼし +3）。拾えるのは桁違いの誤り（R7 の `ICBK80L 80L×2個` など）で、3 倍程度の誤り（R5）は拾えない。試験 tests/test_wp10_outlier.py（27 件）。
 
 ## 次にやること（順番）
