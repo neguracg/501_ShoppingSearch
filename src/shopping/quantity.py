@@ -422,10 +422,13 @@ def _tokens(s: str, flags: list[str], dropped: list[float],
                 ident = _identity(m, counters, units)
                 if ident is not None:
                     embedded.append(ident)
-                # WP12 M1: 型番の語に付いた個数（S54枚 × 4パック）を読み飛ばした時、×・入数でつながる連結位置の個数なら
-                # 残りの個数だけでは積が決められない（4パック(216枚) を 864 と読む）ので low（P6 と同じ）
-                if m.group("counter") and _is_link_position(s, a, m.end()):
-                    flags.append("dropped_link")
+                # WP12 M1・B11: 型番の語に付いた個数（S54枚・M52枚・NB60枚）は個数として読み飛ばすが、捨てた数として残し、
+                # 採用した総数と食い違えば low（WP8 の捨てた数の検査。空白でつないだ `S54枚 4パック` も同じ。型番の言い直し
+                # `SN12R … 12ロール` は同じ数なので high のまま）。×・入数の連結位置なら P6 と同じく必ず low
+                if m.group("counter"):
+                    _note_dropped(m, s, counters, units, dropped, dropped_measures)
+                    if _is_link_position(s, a, m.end()):
+                        flags.append("dropped_link")
             continue
         if skipped:
             # 「6個以上」「6個まで」「3個から」の数は購入条件・上限・下限で個数ではない。ただし捨てた数としては
