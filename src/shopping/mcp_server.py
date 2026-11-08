@@ -39,6 +39,14 @@ INSTRUCTIONS = (
     f"回答の末尾にクレジット（{CREDIT_TEXT}）を添えること。"
 )
 
+# 両ツールの説明に入れる共通の注意（商品の意味は判定しない）。文は1か所（ここ）だけで持つ（WP11-1）
+_NOT_JUDGED = (
+    "【注意】このツールは商品の種類・仕様（本体／交換部品・付属品、純正／互換、型番・世代違い、"
+    "単3／単4、炭酸／非炭酸、本体／詰め替え など）を判定しない。"
+    "利用者の指定に合わない候補は、include_terms・exclude_terms（商品名で判定）や ng_keyword で絞ってから比べ、"
+    "最終回答の前に商品名で照合すること。"
+)
+
 _READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                              open_world_hint=True)
 
@@ -75,6 +83,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         description=(
             "楽天市場で商品を検索し、候補の一覧を返す（比較はしない）。"
             "条件に合う商品を探して一覧で見たい時に使う。"
+            + _NOT_JUDGED +
             "keywords に検索語を1〜5個（日本語可）渡すと、語ごとに検索して商品コードで重複を除いて統合する"
             "（どの語で見つかったかは matched_keywords）。"
             "ng_keyword は楽天側の除外語、min_price/max_price は税込価格の範囲（円）、"
@@ -96,6 +105,8 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "各候補に商品固有URL(url)、価格、送料区分(shipping_status: included=送料込み/"
             "separate=送料別/unknown)、数量の読み取り結果(quantity: count_total=総個数、content_amount=1個あたり内容量、"
             "content_dimension/content_unit=容量ml・重さg・長さm・電力W等、measure_total=総量。confidenceがhighの時だけ値が入る)が付く。"
+            "quantity.confidence が high でない候補は単価が不明なので、最安・おすすめとして示さない"
+            "（示す時は理由と『商品ページで確認』を添える）。"
             "最安を決めたい時は compare_offers を使う。"),
     )
     def search_products(keywords: list[str], ng_keyword: str | None = None,
@@ -123,7 +134,8 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "include_terms に仕様を表す語を入れる（例: 洗剤なら『詰め替え』、電池なら『単3』、トイレットペーパーなら『ダブル』）。"
             "全部を商品名に含む候補だけが残り、exclude_terms のどれかを含む候補は外れる（外した件数は notes）。"
             "ng_keyword は楽天側の除外語で、exclude_terms は商品名での除外。"
-            "仕様の違い（濃縮/通常・層数・型番・色など）はこのツールでは判定しないので、同じ仕様か否かは呼び出し側の AI が"
+            + _NOT_JUDGED +
+            "仕様の違い（濃縮/通常・層数・型番・色など）も同じで、同じ仕様か否かは呼び出し側の AI が"
             "商品名で判断し、必要なら利用者に確認する。"
             "basis は比べる単位: 省略で自動（候補の過半が同じ内容量の次元ならその基準単位 ml/g/m/W/mAh/Wh、そうでなければ『個』）。"
             "『個』（1個あたり）や ml・g・m・W・mAh・Wh（L・kg などの別名も可）を指定できる。"
@@ -134,6 +146,9 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "各候補の unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量の読み違いの疑いがある候補"
             "（cheapest_unit_price・cheapest_for_quantity からは外してあり、候補としては残す）。"
             "利用者に商品ページでの確認を促すこと。"
+            "quantity.confidence が high でない候補（unknown_offers など単価不明）と unit_price_outlier が true の候補は、"
+            "最安・おすすめとして示さない。示す時は理由と『商品ページで確認』を添えること。"
+            "cheapest_price は商品価格だけの最安で送料は含まない。送料が不明な候補を『送料込み最安』と呼ばない。"
             "keywords・ng_keyword・min_price/max_price・sort・pages は search_products と同じ"
             "（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
             "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。"
