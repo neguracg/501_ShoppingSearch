@@ -36,7 +36,7 @@ def test_validate_rejects_a_one_char_term_in_keywords_and_in_ng_keyword(kw):
     with pytest.raises(KeywordTermTooShort) as e:
         validate(keywords=[kw])
     assert e.value.kind == "keyword_term_too_short" and isinstance(e.value, InvalidInput)
-    assert "1 文字" in str(e.value) and (len(kw) < 4 or kw not in str(e.value))   # 入力値そのものは入れない
+    assert "1 文字" in str(e.value) and (len(kw.split()) <= 2 or kw not in str(e.value))   # 入れるのは弾いた語と直前の語だけ。3 語以上の入力の全文は入れない（WP11-3）
     with pytest.raises(KeywordTermTooShort):
         validate(keywords=["洗濯洗剤"], ng_keyword=kw)
 

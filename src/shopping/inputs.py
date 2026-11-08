@@ -59,19 +59,51 @@ def _is_ideograph(ch: str) -> bool:
             or 0x20000 <= cp <= 0x3FFFF)
 
 
+def _first_too_short_term(text: str) -> tuple[str | None, str] | None:
+    """空白（半角・全角）区切りの語のうち、最初の「楽天が受け付けない 1 文字の語（漢字以外の 1 文字）」と、
+    その直前の語（無ければ None）。無ければ None。"""
+    tokens = text.split()
+    for i, t in enumerate(tokens):
+        if len(t) == 1 and not _is_ideograph(t):
+            return (tokens[i - 1] if i else None), t
+    return None
+
+
 def has_too_short_term(text: str) -> bool:
     """空白（半角・全角）区切りの語に、楽天が受け付けない 1 文字の語（漢字以外の 1 文字）があるか。"""
-    return any(len(t) == 1 and not _is_ideograph(t) for t in text.split())
+    return _first_too_short_term(text) is not None
+
+
+PREV_ECHO_MAX = 20     # 誤り文に入れる「直前の語」の最大文字数（長い語は末尾だけ。入力の全文は入れない）
+
+
+def _printable(text: str) -> str:
+    return "".join(ch for ch in text if ch.isprintable())
+
+
+def too_short_message(label: str, prev: str | None, bad: str) -> str:
+    """1 文字の語の誤り文。弾いた語と、直前の語につないだ形を入れる（直前の語が無ければ 2 文字以上にだけ促す）。
+    入れるのは弾いた 1 文字と直前の語（長ければ末尾 PREV_ECHO_MAX 文字）だけで、語全体・入力の全文は入れない。
+    公開Web・公開MCP・CLI・stdio MCP の誤り文はこの 1 か所から出る。"""
+    bad = _printable(bad)
+    rule = "半角 1 文字、全角の数字・英字・かな・記号 1 文字。漢字 1 文字は可"
+    prev = _printable(prev) if prev else ""
+    if not prev:
+        return (f"{label}の先頭に、楽天で検索できない 1 文字だけの語『{bad}』があります（{rule}）。"
+                "語を 2 文字以上にしてください。")
+    shown = prev if len(prev) <= PREV_ECHO_MAX else "…" + prev[-PREV_ECHO_MAX:]
+    return (f"{label}に、楽天で検索できない 1 文字だけの語『{bad}』があります（{rule}）。"
+            f"『{shown} {bad}』は『{shown}{bad}』のように前の語とつなげるか、語を 2 文字以上にしてください。")
 
 
 def check_term_lengths(texts, label: str) -> None:
     """楽天に渡す語（検索語・除外語）の 1 文字だけの語の検査。不正なら KeywordTermTooShort。
     公開面の Gate（Web・MCP）と service（CLI・stdio MCP・定番品）が呼ぶ。楽天アダプタは呼ばない（アダプタは通信だけを持つ）。texts は文字列または文字列のリスト。"""
     items = [texts] if isinstance(texts, str) else list(texts or [])
-    if any(isinstance(t, str) and has_too_short_term(t) for t in items):
-        raise KeywordTermTooShort(
-            f"{label}に、楽天で検索できない 1 文字だけの語があります（半角 1 文字、全角の数字・英字・かな・記号 1 文字。"
-            "漢字 1 文字は可）。『DELTA 2』は『DELTA2』のように前の語とつなげるか、語を 2 文字以上にしてください。")
+    for t in items:
+        found = _first_too_short_term(t) if isinstance(t, str) else None
+        if found:
+            raise KeywordTermTooShort(too_short_message(label, *found))
 
 
 def _terms(value, label: str, *, allow_empty: bool) -> list[str]:
