@@ -258,6 +258,41 @@ _KATAKANA_WORD = re.compile(r"[ァ-ヶ]")
 _BUNDLE_JOINERS = "+&"
 
 
+# WP12 M1: 範囲の端の量（体重 4~8kg・お誕生~5,000g・500g~1kg）。波線が数字の後ろに（空白を挟んでも）続く、前の語に直接つく、
+# または量の直後に波線＋数字が続く形。波線で挟んだ飾り（ 〜500ml〜 ）は波線の前が空白なので範囲にしない
+_RANGE_BEFORE = re.compile(r"(?:[^\s~〜][~〜]|\d\s+[~〜]\s*)$")
+_RANGE_AFTER = re.compile(r"\s*[~〜]\s*\d")
+
+
+@functools.lru_cache(maxsize=8)
+def _rate_re(unit_keys: tuple[str, ...]):
+    return re.compile(rf"\s*/\s*(?P<den>{_NUM})?\s*(?P<unit>{_alt(unit_keys)})")
+
+
+def _is_rate_numerator(s: str, end: int, dim: str, units: dict[str, tuple[str, float]]) -> bool:
+    """WP12 M2: 量の直後に `/` と計量単位が続く分数表記（濃度・率: mg/L・mg/kg・g/100ml）の分子か。分母が計量単位の時だけ
+    （個数の分母 480ml/1個 は含めない）。分母に数があり同じ次元（5kg/10kg・55m/30m）は分数ではなく択一・併記なので含めない
+    （WP8 M3 が捨てた候補として食い違いを見る）。単位の組の表は持たない。"""
+    m = _rate_re(tuple(units)).match(s, end)
+    return bool(m and (m.group("den") is None or units[m.group("unit")][0] != dim))
+
+
+_TIMES_AFTER = re.compile(r"\s*[×x*]\s*\d")
+
+
+def _is_range_end(s: str, start: int, end: int) -> bool:
+    """WP12 M1: [start, end) の数字＋単位（または数え語）が範囲（A~B）の端か。範囲の量は 1 個あたりの内容量ではなく、
+    範囲の個数は個数が決まらない。波線が前の語に直接つく形（お得〜2L×6本）でも、直後に ×数 が続く鎖の量は範囲にしない。"""
+    return bool(_RANGE_AFTER.match(s, end)
+                or (_RANGE_BEFORE.search(s[:start]) and not _TIMES_AFTER.match(s, end)))
+
+
+def _glued_symbol(s: str, end: int) -> bool:
+    """WP12 M4: 単位の直後に空白なしで装飾記号（◇◆★☆■●▲ など。Unicode の記号 So）がつながるか。
+    店の符号・飾りの一部（送料込 2M◇）か量かを決められない。"""
+    return end < len(s) and unicodedata.category(s[end]) == "So"
+
+
 def _num(text: str) -> float:
     return float(text.replace(",", ""))
 
@@ -387,6 +422,10 @@ def _tokens(s: str, flags: list[str], dropped: list[float],
                 ident = _identity(m, counters, units)
                 if ident is not None:
                     embedded.append(ident)
+                # WP12 M1: 型番の語に付いた個数（S54枚 × 4パック）を読み飛ばした時、×・入数でつながる連結位置の個数なら
+                # 残りの個数だけでは積が決められない（4パック(216枚) を 864 と読む）ので low（P6 と同じ）
+                if m.group("counter") and _is_link_position(s, a, m.end()):
+                    flags.append("dropped_link")
             continue
         if skipped:
             # 「6個以上」「6個まで」「3個から」の数は購入条件・上限・下限で個数ではない。ただし捨てた数としては
@@ -408,6 +447,14 @@ def _tokens(s: str, flags: list[str], dropped: list[float],
             dim, factor = units[m.group("unit")]
             amount = round(value * factor, 9)
             if amount <= 0:
+                continue
+            # WP12 M1・M2: 範囲の端（4~8kg）と、量/単位の分子（42.5mg/L）は 1 個あたりの内容量ではない。採らずに捨てた量として
+            # 残す（採用した同じ次元の内容量と食い違えば low。P0）
+            if _is_range_end(s, a, m.end()) or _is_rate_numerator(s, m.end(), dim, units):
+                dropped_measures.append((dim, amount))
+                continue
+            if _glued_symbol(s, m.end()):                       # WP12 M4: 2M◇ は長さか店の符号か決められない（P0: low）
+                flags.append("decorated_measure")
                 continue
             toks.append(_Tok("measure", a, m.end(), n=amount, dim=dim))
         else:
@@ -431,6 +478,9 @@ def _tokens(s: str, flags: list[str], dropped: list[float],
                     continue
             if _in_bundle_list(s, a, m.end()):
                 flags.append("bundle_list")             # WP9 E2: 構成品の個数は商品全体の個数ではない（P0: low）
+                continue
+            if _is_range_end(s, a, m.end()):            # WP12（M1 の横展開）: 範囲の端の個数（3~5箱）は個数が決まらない（P0: low）
+                flags.append("range")
                 continue
             toks.append(_Tok("count", a, m.end(), n=int(value), word=word,
                              mult=mults.get(key, 1), solo_low=key in solo_low))
@@ -626,7 +676,9 @@ def _standalone_measure_digits_in_model(s: str, groups: list[_Group]) -> bool:
                 singles.append((g.toks[0], m.group().replace(",", "")))
     if not singles:
         return False
-    for w in re.finditer(r"\S+", s):
+    # WP12 M5: 型番の語は「ASCII の印字文字の連なり」（空白・日本語・読点で切る）。日本語に直接つながる型番
+    # （インクIC6CL80・IC6CL80互換80L・IC6CL80、80L）も取る。ASCII の記号（+ , : など）でつながった連なりは従来どおり1語
+    for w in re.finditer(r"[\x21-\x7e]+", s):
         if not _MODEL_WORD.fullmatch(w.group()):
             continue
         for run in _DIGIT_RUN.finditer(w.group()):
@@ -752,6 +804,11 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
         elif order[0] in amounts:
             dim = order[0]
         else:
+            return _low(evidence)
+        # WP12 M3: 採用する次元の量が個数と同じ鎖に無く（2000m）、個数は別の次元の量の鎖に付いている（2L×6本）時は、
+        # 個数がどちらの量に掛かるのか決められない（ml の打ち間違い）ので low（P0 の食い違い）
+        counted = {d for d, _, _, has in per_group if has}
+        if counted and dim not in counted:
             return _low(evidence)
         amount = amounts[dim]
         # 採らなかった「数字＋計量単位」（最大700g・シングル_55m）が、採用した同じ次元の内容量（またはその総量）と
