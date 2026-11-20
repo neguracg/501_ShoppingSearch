@@ -180,3 +180,22 @@ def test_web_group_titles_differ_by_count_unit():
     c = service._comparison_to_dict(compare(takitsuke(), basis="個"))
     titles = [group_title(g, c["basis_label"]) for g in c["groups"]]
     assert len(set(titles)) == 2 and "［本］" in titles[0]
+
+
+def test_main_group_is_first_in_groups_even_when_not_the_largest():
+    # 主グループ（単位価格が出た候補数が最多）が groups の先頭に来る（Q19）
+    r = compare(takitsuke(), basis="個")
+    assert r.groups[0].count_unit == r.main_count_unit == "本"
+    many_bags = [off(f"b{i}", "着火剤 5袋セット", 500 + i) for i in range(2)] + [off("h", "着火剤 18本入り", 300)]
+    r = compare(many_bags, basis="個")
+    assert r.main_count_unit == "袋" and r.groups[0].count_unit == "袋"
+
+
+def test_desired_with_several_groups_says_which_counting_was_used():
+    r = compare(takitsuke(), basis="個", desired_quantity=30)
+    c = next(c for c in r.caveats if "主グループの数え方" in c)
+    assert "希望量 30 は主グループの数え方［本］として扱いました" in c and "個で数えるなら basis=個 を指定" in c
+    r = compare(takitsuke(), basis="個", desired_quantity=30, desired_quantity_max=60)
+    assert any("希望量 30〜60 は主グループの数え方［本］" in c for c in r.caveats)
+    assert not any("主グループの数え方" in c for c in compare(takitsuke(), basis="個").caveats)        # 希望量が無い時は出さない
+    assert not any("主グループの数え方" in c for c in compare(takitsuke(), basis="本", desired_quantity=30).caveats)

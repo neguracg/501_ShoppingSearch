@@ -131,12 +131,24 @@ def test_to_check_price_varies_threshold_uses_n():
     assert c["threshold"] == (3440 - 1) // 2 == 1719               # 2p < 3440 を満たす最大の整数
 
 
-def test_conditions_say_the_threshold_assumes_the_other_checks_pass():
+def test_multiple_money_reasons_are_one_combined_condition():
+    # B3: 価格幅あり＋送料別は、片方ずつの閾値を並べず「（選択肢の価格×n＋送料）が X円未満なら」の 1 文
     offers = [off("iris60", IRIS60, 1720), off("both", UNIDY60, 1300, ship="separate", lo=1300, hi=1720)]
     r = compare(offers, basis="個", desired_quantity=50)
     conds = r.to_check[0].conditions
-    assert {c["reason"] for c in conds} == {"shipping_separate", "price_varies"}
-    assert all("ほかの確認事項も満たす場合" in c["text"] for c in conds)
+    assert len(conds) == 1 and conds[0]["reasons"] == ["price_varies", "shipping_separate"]
+    assert conds[0]["reason"] == "price_varies+shipping_separate" and conds[0]["threshold"] == 1720
+    assert "選択肢の価格×1個＋送料の合計が 1,720円未満なら" in conds[0]["text"]
+
+
+def test_caption_and_money_reasons_make_a_should_be_correct_precondition():
+    cap = off("cap", "カイロ 使い捨て", 900, ship="separate")
+    cap.quantity = QuantityInfo(count_total=60, count_unit="枚", confidence="high", source="caption",
+                                caption_evidence="数量:60枚入り")
+    r = compare([off("iris60", IRIS60, 1720), cap], basis="個", desired_quantity=50)
+    c = r.to_check[0].conditions[0]
+    assert c["reasons"] == ["quantity_from_caption", "shipping_separate"]
+    assert c["text"].startswith("説明欄『数量:60枚入り』の数量が正しければ") and "820円未満" in c["text"]
 
 
 def test_to_check_has_no_count_limit_and_group_caveats_name_the_count_unit():
@@ -232,3 +244,47 @@ def test_cli_prints_orders_and_conditions(capsys):
                     "--desired-quantity-max", "20000", "--mock"]) == 0
     out = capsys.readouterr().out
     assert "注文の最安" in out and "希望量 5,000〜20,000" in out
+
+
+# --- 範囲指定の最安は注文の単価（WP14 B1）-----------------------------------------------------------
+
+def range_offers():
+    return [off("a60", "カイロ 貼る 60枚 PKN-60HR", 1720), off("c100", "カイロ 貼る 100枚", 2500), off("d90", "カイロ 貼る 90枚", 2400),
+            off("e50", "カイロ 貼る 50枚", 1250), off("sep100", "カイロ 貼る 100枚 送料別", 2000, ship="separate")]
+
+
+def test_range_picks_the_lowest_unit_price_and_quantity_picks_the_lowest_total():
+    r = compare(range_offers(), basis="個", desired_quantity=50, desired_quantity_max=100)
+    assert r.cheapest_order.offer.mall_item_code == "e50"          # 25.0 円/枚 同率の c100 より注文額が小さい
+    assert [p.offer.mall_item_code for p in r.order_plans][:3] == ["sep100", "e50", "c100"]    # 注文の単価順
+    r = compare(range_offers(), basis="個", desired_quantity=50)
+    assert r.cheapest_order.offer.mall_item_code == "e50"          # 量の指定（上限なし）は注文額の最小（1,250円）
+    r = compare([o for o in range_offers() if o.mall_item_code != "e50"], basis="個", desired_quantity=50)
+    assert r.cheapest_order.offer.mall_item_code == "a60"          # 上限なし: 1,720円。単価の 25.0（c100）ではない
+    r = compare([o for o in range_offers() if o.mall_item_code != "e50"], basis="個", desired_quantity=50, desired_quantity_max=100)
+    assert r.cheapest_order.offer.mall_item_code == "c100"         # 範囲: 25.0 円/枚（a60 は 28.7）
+
+
+def test_range_to_check_threshold_is_in_unit_price():
+    offers = [o for o in range_offers() if o.mall_item_code != "e50"]
+    r = compare(offers, basis="個", desired_quantity=50, desired_quantity_max=100)
+    t = r.to_check[0]
+    c = t.conditions[0]
+    assert t.plan.offer.mall_item_code == "sep100" and c["reason"] == "shipping_separate"
+    assert c["threshold"] == 25 * 100 - 2000 == 500                 # 送料が 500円未満なら注文の単価が最安の 25.0 より安い
+    assert "500円未満" in c["text"] and "単価換算" in c["text"]
+
+
+def test_range_to_check_excludes_candidates_not_cheaper_per_unit():
+    offers = [off("c100", "カイロ 貼る 100枚", 2500), off("sep", "カイロ 貼る 60枚 送料別", 1800, ship="separate")]    # 30.0 円/枚 > 25.0
+    r = compare(offers, basis="個", desired_quantity=50, desired_quantity_max=100)
+    assert r.to_check == []
+    r = compare(offers, basis="個", desired_quantity=50)                                                         # 上限なし: 1,800 < 2,500 で候補
+    assert r.cheapest_order.offer.mall_item_code == "c100" and [t.plan.offer.mall_item_code for t in r.to_check] == ["sep"]
+
+
+def test_range_price_varies_threshold_uses_the_unit_price_conversion():
+    offers = [off("c100", "カイロ 貼る 100枚", 2500), off("var", UNIDY60, 1300, lo=1300, hi=1720)]
+    r = compare(offers, basis="個", desired_quantity=50, desired_quantity_max=100)
+    c = r.to_check[0].conditions[0]
+    assert c["reason"] == "price_varies" and c["threshold"] == 1499   # 25.0×60=1500 未満＝1,499円以下

@@ -141,10 +141,10 @@ def _plan_line(p: dict) -> str:
             f"        {p['name']}\n        {p['url']}")
 
 
-def _print_orders(sec: dict, indent: str = "") -> None:
+def _print_orders(sec: dict, indent: str = "", by_unit: bool = False) -> None:
     """order_plans / cheapest_order / to_check（最上位、または groups[] の中）の表示。"""
     co = sec.get("cheapest_order")
-    print(f"{indent}★ 注文の最安（確認済み）: " + ("（該当なし）" if co is None else _plan_line(co)))
+    print(f"{indent}★ 注文の最安（確認済み・" + ("注文の単価が最小" if by_unit else "注文額が最小") + "）: " + ("（該当なし）" if co is None else _plan_line(co)))
     for t in sec.get("to_check") or []:
         print(f"{indent}  ? 逆転し得る: {_plan_line(t)}")
         for cond in t["conditions"]:
@@ -181,7 +181,7 @@ def render_compare(r: dict) -> None:
         print(f"希望量 {rng}（{c['basis']}）を同じ商品の n 個注文で満たす組み合わせ:")
         if len(c["groups"]) > 1:                       # 主グループの結果。他の数え語のグループは JSON の groups[] にある
             print(f"  （数え語の主グループ［{c['main_count_unit']}］。他の数え方の候補は比べていない）")
-        _print_orders(c, "  ")
+        _print_orders(c, "  ", r.get("desired_quantity_max") is not None)
     if c["caveats"]:
         print()
         print("断定できない理由・注意:")
