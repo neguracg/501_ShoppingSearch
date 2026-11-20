@@ -17,7 +17,7 @@ from .orchestrator import Limits, search_many
 from .inputs import (DEFAULT_PAGES, MAX_PAGES, InvalidInput, check_basis, check_desired_range,
                      check_term_lengths)
 from .pricing import (Comparison, OrderPlan, ToCheck, compare, filter_by_terms, round_unit_price,
-                      total_price)
+                      total_price, unconfirmed_reasons, unit_price_reasons)
 from .caption_quantity import read_offer_quantity
 from .regulars import Regular, RegularsError, get_regular
 
@@ -56,8 +56,21 @@ def _error(kind: str, message: str, **extra) -> dict:
     return out
 
 
+def _price_fields(value: float | None, reasons: list[str], key: str) -> dict:
+    """単価を出力 dict のキーへ振り分ける唯一の場所（WP15 §8 Q21・Q23）。value は内部の計算値、reasons は単価の未確定理由
+    （pricing.unit_price_reasons。送料を含まない）。確認済みなら key に値、未確定なら key は null で値は provisional_<key>。
+    単価が無ければ status は unknown。"""
+    shown = round_unit_price(value)
+    status = "unknown" if shown is None else ("unconfirmed" if reasons else "confirmed")
+    return {key: shown if status == "confirmed" else None,
+            f"provisional_{key}": shown if status == "unconfirmed" else None,
+            "unit_price_status": status,
+            "unit_price_unconfirmed_reasons": list(reasons) if status == "unconfirmed" else []}
+
+
 def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
     q = offer.quantity
+    price_fields = _price_fields(offer.unit_price, unit_price_reasons(unconfirmed_reasons(offer)), "unit_price")
     d = {
         "mall": offer.mall,
         "item_code": offer.mall_item_code,
@@ -81,11 +94,13 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
             "count_total": q.count_total, "count_unit": q.count_unit,
             "content_amount": q.content_amount, "content_dimension": q.content_dimension,
             "content_unit": q.content_unit, "measure_total": q.measure_total,
-            "confidence": q.confidence, "evidence": q.evidence,
+            "confidence": "conflict" if q.caption_conflict else q.confidence,       # 出力は「単価に使ってよいか」（§7 Q22）
+            "title_confidence": q.confidence,                                      # 題名の判定（内部の値のまま）
+            "evidence": q.evidence,
             "content_amounts": dict(q.content_amounts or {}),
             "source": q.source, "caption_evidence": q.caption_evidence, "caption_conflict": q.caption_conflict,
             "caption_candidate": None if q.caption_candidate is None else dict(q.caption_candidate)},
-        "unit_price": round_unit_price(offer.unit_price),
+        **price_fields,
         "unit_price_label": offer.unit_price_label,
         "unit_price_dimension": offer.unit_price_dimension,
         "unit_price_outlier": offer.unit_price_outlier,
@@ -248,12 +263,16 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
 def order_plan_to_dict(p: OrderPlan) -> dict:
     """注文案（同じ商品を n 個）。候補の全項目は出さず、商品を特定する項目と注文の数字だけ（候補一覧は groups[].offers）。"""
     o, q = p.offer, p.offer.quantity
+    included = p.shipping_status == "included"
     return {
         "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
         "url": o.item_url, "url_status": o.item_url_status,
         "price": o.price, "price_min": o.price_min, "price_max": o.price_max, "price_varies": o.price_varies,
         "n": p.n, "order_quantity": p.order_quantity, "order_total": p.order_total,
-        "order_unit_price": round_unit_price(p.order_unit_price), "unit_price_label": o.unit_price_label,
+        "payment_total": p.order_total if included else None,           # 送料込みの支払総額である時だけ（§8 Q23）
+        "order_total_kind": "payment_total" if included else "item_subtotal",
+        **_price_fields(p.order_unit_price, unit_price_reasons(p.reasons), "order_unit_price"),
+        "unit_price_label": o.unit_price_label,
         "shipping_status": p.shipping_status, "count_unit": p.count_unit,
         "quantity_source": None if q is None else q.source, "caption_evidence": None if q is None else q.caption_evidence,
         "confirmed": p.confirmed, "unconfirmed_reasons": list(p.reasons),

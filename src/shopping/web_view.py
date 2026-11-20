@@ -7,7 +7,7 @@ from jinja2 import DictLoader, Environment
 from .adapters.rakuten import is_item_url
 from .credit import CREDIT_HTML, FRESHNESS_TEXT, OPERATOR_TEXT
 from .inputs import MAX_KEYWORDS, WIDTH_TEXT
-from .pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, format_unit_price
+from .pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, unit_price_text
 from .quantity import basis_choices, format_amount
 
 _CSS = """
@@ -157,7 +157,7 @@ def _ship(o: dict) -> str:
 
 def _qty(o: dict) -> str:
     q = o.get("quantity") or {}
-    if q.get("confidence") != "high":
+    if q.get("confidence") not in ("high", "conflict"):       # conflict＝題名は high で説明欄と食い違う（数量は表示し、単価は仮）
         hint = f"（説明欄に「{q['caption_evidence']}」・単価には使っていない）" if q.get("caption_candidate") else ""
         return ("数量不明" if q.get("confidence") == "none" else "数量要確認") + hint
     text = f"{format_amount(q['count_total'])}{q['count_unit']}"
@@ -168,8 +168,8 @@ def _qty(o: dict) -> str:
         text += "【説明欄の記述から補完・確認済みではない: " + str(q.get("caption_evidence")) + "】"
     elif q.get("caption_conflict"):
         text += "【説明欄の「" + str(q.get("caption_evidence")) + "」と食い違い・要確認】"
-    up = o.get("unit_price")
-    return text + (f"／{o['unit_price_label']} {format_unit_price(up)}円" if up is not None else "")
+    up = unit_price_text(o)
+    return text + (f"／{up}" if up else "")
 
 
 def _safe_url(o: dict) -> bool:

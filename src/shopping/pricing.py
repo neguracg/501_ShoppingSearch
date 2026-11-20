@@ -54,6 +54,42 @@ def is_confirmed(o: Offer, *, shipping: bool = False) -> bool:
     return not unconfirmed_reasons(o, shipping=shipping)
 
 
+# 単価の未確定理由（WP15。SPEC §8 Q21）。unconfirmed_reasons のうち送料以外。送料別・不明は単価の誤りではない。
+# 出力の dict が単価を素の値で出すか仮の値で出すかの唯一の判定（service が呼ぶ）。理由の集合は別に持たない（送料の語だけを除く）
+_SHIPPING_REASONS = ("shipping_separate", "shipping_unknown")
+
+
+def unit_price_reasons(reasons: list[str]) -> list[str]:
+    """unconfirmed_reasons（送料を含んでよい）から単価を未確定にする理由だけを取る。"""
+    return [r for r in reasons if r not in _SHIPPING_REASONS]
+
+
+# 仮の単価に添える理由の文（WP15 Q24。Web・CLI の表示用。理由の語の意味はここ1か所）
+UNIT_PRICE_REASON_TEXT = {
+    "quantity_from_caption": "説明欄から補った数量",
+    "caption_conflict": "題名と説明欄の数量が食い違う",
+    "price_varies": "選択肢で価格が変わる",
+    "unit_price_outlier": "他の候補より桁違いに安い。数量の読み違いの疑い",
+    "quantity_unknown": "数量が商品名から読めない",
+}
+
+
+def unit_price_reason_text(reasons: list[str]) -> str:
+    return "・".join(UNIT_PRICE_REASON_TEXT.get(r, r) for r in reasons)
+
+
+def unit_price_text(d: dict, key: str = "unit_price") -> str | None:
+    """出力 dict（service が作る候補・注文案）の単価の表示文（Web・CLI 共通）。確認済みは「1個あたり 25.00円」、
+    未確定は「仮 1個あたり 25.00円（選択肢で価格が変わる）」、単価なしは None。key は候補なら unit_price、注文案なら order_unit_price。"""
+    label = d.get("unit_price_label") or ""
+    if d.get(key) is not None:
+        return f"{label} {format_unit_price(d[key])}円"
+    prov = d.get(f"provisional_{key}")
+    if prov is None:
+        return None
+    return f"仮 {label} {format_unit_price(prov)}円（{unit_price_reason_text(d.get('unit_price_unconfirmed_reasons') or [])}）"
+
+
 def unit_price_digits(x: float) -> int:
     """単価の小数桁数（唯一の実装）。通常は 2 桁。2 桁で 0.00 になってしまう小さな正の値は有効数字が出るまで
     増やす（最大 4 桁。S10）。"""

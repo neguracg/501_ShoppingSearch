@@ -35,12 +35,16 @@ _ORDER_GUIDE = (
     "紙幅・サイズなどの仕様は道具が判定しない。各候補の caption にある見出し付きの仕様（例: ■ロールサイズ：幅114mm×長さ100m）を呼び出し側が照合し、"
     "違う可能性がある候補は同一品と分けて示す。"
     "quantity.source が caption の候補は題名から数量が読めず説明欄から補った数量で、確認済みではない（caption_evidence が根拠）。"
-    "quantity.caption_conflict が true の候補は題名の数量と説明欄が食い違うので商品ページで確認を促す。"
+    "quantity.caption_conflict が true の候補は題名の数量と説明欄が食い違うので商品ページで確認を促す（quantity.confidence は conflict）。"
+    "unit_price が null で provisional_unit_price がある候補（unit_price_status が unconfirmed）の単価は仮の値で、確定値として伝えない"
+    "（理由 unit_price_unconfirmed_reasons を添える。注文案は order_unit_price・provisional_order_unit_price も同じ）。"
+    "order_total_kind が item_subtotal の金額は商品小計（送料別・不明）で、支払総額と呼ばない（支払総額は payment_total がある時だけ）。"
 )
 # compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
 _ORDER_POINTER = (
     "希望量の注文の比べ方・回答は INSTRUCTIONS の【希望量の注文を比べる時】に従う"
     "（回答は cheapest_order・to_check・caveats の3つ。price_varies を断定せず、送料無料ラインを仮定しない）。"
+    "unit_price が null の候補は provisional_unit_price を仮の値として伝え、order_total_kind が item_subtotal の金額を支払総額と呼ばない。"
 )
 # 検索の仕方の指示（WP14 W6）
 _SEARCH_GUIDE = (
@@ -132,9 +136,9 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "（notes に『時間の上限で途中まで』）。stats.elapsed_sec は取得にかかった秒。複数語で続きを取る時は続きが要る語だけを渡す。"
             "max_results は返す件数の上限で、省略すると取得した全件を返す。"
             "各候補に商品固有URL(url)、価格、送料区分(shipping_status: included=送料込み/"
-            "separate=送料別/unknown)、数量の読み取り結果(quantity: count_total=総個数、content_amount=1個あたり内容量、"
+            "separate=送料別/unknown)、商品名（足りない時は説明欄の見出し付きの値）から読んだ数量(quantity: count_total=総個数、content_amount=1個あたり内容量、"
             "content_dimension/content_unit=容量ml・重さg・長さm・電力W等、measure_total=総量。confidenceがhighの時だけ値が入る)が付く。"
-            "quantity.confidence が high でない候補は単価が不明なので、最安・おすすめとして示さない"
+            "quantity.confidence が high でない候補（conflict を含む）は単価が不明・未確定なので、最安・おすすめとして示さない"
             "（示す時は理由と『商品ページで確認』を添える）。"
             + _SEARCH_GUIDE +
             "最安を決めたい時は compare_offers を使う。"),
@@ -156,14 +160,13 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         name="compare_offers",
         annotations=_READ_ONLY,
         description=(
-            "楽天市場で検索した候補を、商品名から読んだ数量（個数×内容量）で単位あたりの価格に直して比べ、最安を4種類に分けて返す: "
+            "楽天市場で検索した候補を、商品名（足りない時は説明欄の見出し付きの値）から読んだ数量（個数×内容量）で単位あたりの価格に直して比べ、最安を4種類に分けて返す: "
             "(1) 商品価格が最安 (2) 基準単位あたりの単価が最安 "
             "(3) 支払総額が最安（送料が不明な候補が1件でもあれば null＝断定しない） "
             "(4) desired_quantity 以上を満たす中で最安（同じ商品を n 個注文する組み合わせの最安 cheapest_order と同じ候補）。"
             "『一番安いのはどれ？』『100gあたりで比べて』『単3電池を1本あたりで』『水を2L換算で』の時に使う。"
             "include_terms に仕様を表す語を入れる（例: 洗剤なら『詰め替え』、電池なら『単3』、トイレットペーパーなら『ダブル』）。"
             "全部を商品名に含む候補だけが残り、exclude_terms のどれかを含む候補は外れる（外した件数は notes）。"
-            "ng_keyword は楽天側の除外語で、exclude_terms は商品名での除外。"
             + _NOT_JUDGED +
             "仕様の違い（濃縮/通常・層数・型番・色など）も同じで、同じ仕様か否かは呼び出し側の AI が"
             "商品名で判断し、必要なら利用者に確認する。"
@@ -178,15 +181,13 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "cheapest_price / cheapest_unit_price / cheapest_total / cheapest_for_quantity・order_plans / cheapest_order / to_check・caveats・notes。"
             "cheapest_* が null の理由は必ず caveats に書いてあるので、利用者へそのまま伝えること。"
             "各候補の unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量の読み違いの疑いがある候補"
-            "（cheapest_unit_price・cheapest_for_quantity からは外してあり、候補としては残す）。"
-            "利用者に商品ページでの確認を促すこと。"
+            "（最安からは外し、候補としては残す）。"
             "quantity.confidence が high でない候補（unknown_offers など単価不明）と unit_price_outlier が true の候補は、"
             "最安・おすすめとして示さない。示す時は理由と『商品ページで確認』を添えること。"
             "cheapest_price は商品価格だけの最安で送料は含まない。送料が不明な候補を『送料込み最安』と呼ばない。"
             "keywords・ng_keyword・min_price/max_price・sort・pages は search_products と同じ"
             "（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
-            "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。"
-            "groups・unknown_offers は件数で切らず全件返す。"),
+            "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。"),
     )
     def compare_offers(keywords: list[str], include_terms: list[str] | None = None,
                        exclude_terms: list[str] | None = None, desired_quantity: float | None = None,
