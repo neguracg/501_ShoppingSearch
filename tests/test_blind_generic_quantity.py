@@ -1952,7 +1952,8 @@ def test_wp14_count_unit_alias_basis_is_normalized():
 
 
 def test_wp14_basis_count_unit_with_desired_uses_that_unit():
-    # Q20 の例: 「18本入りを30袋」は basis=本・desired=540 で比べる。
+    # Q20（WP14 の例。WP15 段B で basis=袋・desired=30 のままでもよくなったが、basis=本・540 も有効なまま）:
+    # 「18本入りを30袋」は basis=本・desired=540 で比べる。
     # a: 18本入り 900円 → n=30 (540本)=27000円。b: 36本 1500円 → n=15 (540本)=22500円 → b
     a = "お茶 18本入り"
     b = "お茶 36本"

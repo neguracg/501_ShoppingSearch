@@ -39,7 +39,9 @@ from shopping import service
 
 NOSLEEP = lambda s: None  # noqa: E731
 
-UNIT_REASONS = {"quantity_from_caption", "caption_conflict", "price_varies", "unit_price_outlier"}
+UNIT_REASONS = {"quantity_from_caption", "caption_conflict", "price_varies", "unit_price_outlier",
+                # WP15 段B（SPEC §8 Q21: 単価の未確定理由に足された語）
+                "measure_from_caption", "counter_assumed", "pack_content_differs"}
 OFFER_KEYS = {"unit_price", "provisional_unit_price", "unit_price_status", "unit_price_unconfirmed_reasons"}
 PLAN_KEYS = {"order_unit_price", "provisional_order_unit_price", "unit_price_status",
              "unit_price_unconfirmed_reasons", "payment_total", "order_total_kind"}
