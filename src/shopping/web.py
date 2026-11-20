@@ -129,10 +129,10 @@ def create_app(base_path: str | None = None, gate: Gate | None = None) -> FastAP
     router = APIRouter()
 
     def unit_price_cards(c: dict) -> list:
-        """単価が最安の欄。数え語ごとにグループが分かれている時（WP14 W3）は、グループごとに1つずつ出す（数え方の違う候補は比べない）。"""
-        if len(c["groups"]) > 1:
-            return [(f"{c['basis_label']}［{g['count_unit']}］の単価が最安", g["cheapest_unit_price"]) for g in c["groups"]]
-        return [(f"{c['basis_label']}の単価が最安", c["cheapest_unit_price"])]
+        """単価が最安の欄。数え語のグループが複数ある時（WP14 W3）は主グループ（main_count_unit）の最安で、見出しに数え語を出す
+        （数え方の違う候補は比べない。caveats に件数）。"""
+        unit = f"［{c['main_count_unit']}］" if len(c["groups"]) > 1 and c.get("main_count_unit") else ""
+        return [(f"{c['basis_label']}{unit}の単価が最安", c["cheapest_unit_price"])]
 
     def run(request: Request, mode: str, q, ng, min_price, max_price, include=None, exclude=None,
             basis=None):

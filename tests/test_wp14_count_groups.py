@@ -41,10 +41,10 @@ def test_basis_count_splits_groups_by_count_unit_and_does_not_compare_across():
     r = compare(takitsuke(), basis="個")
     assert set(groups(r)) == {"本", "個"} and set(groups(r)["本"]) == {"p18", "f36", "c36"} and set(groups(r)["個"]) == {"n10", "n60"}
     assert r.groups[0].count_unit == "本"                              # 大きいグループが先
-    assert r.cheapest_unit_price is None                               # 本と個は同じ単価順に並べない
+    assert r.main_count_unit == "本" and r.cheapest_unit_price.mall_item_code == "p18"   # 最上位は主グループ（候補数が最多の 本）の最安
     by = {g.count_unit: g for g in r.groups}
     assert by["本"].cheapest_unit_price.mall_item_code == "p18" and by["個"].cheapest_unit_price.mall_item_code == "n60"
-    assert any(c == COUNT_GROUP_CAVEAT.format(units="本・個") for c in r.caveats) and "本・個" in COUNT_GROUP_CAVEAT.format(units="本・個")
+    assert any(c == COUNT_GROUP_CAVEAT.format(main="本", others="個 2件") for c in r.caveats)
 
 
 def test_single_count_unit_keeps_the_top_level_cheapest():
@@ -54,12 +54,42 @@ def test_single_count_unit_keeps_the_top_level_cheapest():
     assert not any("数え方の違う" in c for c in r.caveats)
 
 
-def test_each_group_gets_its_own_order_section_and_the_top_level_is_empty():
+def test_each_group_gets_its_own_order_section_and_the_top_level_is_the_main_group():
     r = compare(takitsuke(), basis="個", desired_quantity=30)
     by = {g.count_unit: g for g in r.groups}
     assert by["本"].cheapest_order.offer.mall_item_code == "f36" and by["本"].cheapest_order.n == 1
     assert by["個"].cheapest_order.offer.mall_item_code == "n10" and by["個"].cheapest_order.n == 3
-    assert r.order_plans == [] and r.cheapest_order is None and r.cheapest_for_quantity is None and r.to_check == []
+    assert r.main_count_unit == "本" and r.cheapest_order is by["本"].cheapest_order
+    assert r.order_plans == by["本"].order_plans and r.to_check == by["本"].to_check
+    assert r.cheapest_for_quantity.mall_item_code == "f36"
+
+
+def _grp(prefix, name, n, price=1000, ship="included"):
+    return [off(f"{prefix}{i}", name, price + i, ship=ship) for i in range(n)]
+
+
+def test_main_group_is_the_one_with_most_unit_prices_then_confirmed_then_cheapest():
+    a = _grp("h", "着火剤 18本入り", 3) + _grp("k", "着火剤 10個セット", 2)
+    assert compare(a, basis="個").main_count_unit == "本"
+    # 同数なら確認済みの多い方（個側の 2 件は送料込みのまま、本側は価格幅ありで確認済みでない）
+    b = _grp("h", "着火剤 18本入り", 2)
+    for o in b:
+        o.price_min, o.price_max = 100, 2000
+    assert compare(b + _grp("k", "着火剤 10個セット", 2), basis="個").main_count_unit == "個"
+    # それも同じなら最安が安い方
+    c = _grp("h", "着火剤 18本入り", 2, price=900) + _grp("k", "着火剤 10個セット", 2, price=500)
+    assert compare(c, basis="個").main_count_unit == "個"
+    # 最後は数え語の順（決定的）
+    d = _grp("h", "着火剤 18本入り", 1, price=500) + _grp("k", "着火剤 10個セット", 1, price=500)
+    assert compare(d, basis="個").main_count_unit == compare(list(reversed(d)), basis="個").main_count_unit
+
+
+def test_counter_basis_main_group_is_that_counter_and_non_count_basis_has_none():
+    assert compare(takitsuke(), basis="個").main_count_unit == "本"
+    r = compare(takitsuke(), basis="個")
+    assert "個 2件" in r.caveats[[i for i, c in enumerate(r.caveats) if "比べていません" in c][0]]
+    assert compare(takitsuke(), basis="本").main_count_unit == "本"
+    assert compare([off("w", "水 500ml×24本", 1500)]).main_count_unit is None
 
 
 def test_outliers_are_judged_inside_each_group():

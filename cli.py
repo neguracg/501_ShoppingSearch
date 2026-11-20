@@ -168,7 +168,10 @@ def render_compare(r: dict) -> None:
     print()
     labels = [("cheapest_price", "商品価格が最安"), ("cheapest_unit_price", "単位価格が最安"),
               ("cheapest_total", "支払総額が最安"), ("cheapest_for_quantity", "必要数量を満たす最安")]
+    multi = len(c["groups"]) > 1 and c.get("main_count_unit")
     for key, label in labels:
+        if multi and key in ("cheapest_unit_price", "cheapest_for_quantity"):
+            label = f"{label}［主グループ {c['main_count_unit']}］"
         o = c[key]
         print(f"★ {label}: " + ("（断定できない／該当なし）" if o is None else _offer_line(o)))
     if r.get("desired_quantity") is not None:
@@ -176,12 +179,9 @@ def render_compare(r: dict) -> None:
         rng = f"{format_amount(r['desired_quantity'])}" + (
             f"〜{format_amount(r['desired_quantity_max'])}" if r.get("desired_quantity_max") is not None else " 以上")
         print(f"希望量 {rng}（{c['basis']}）を同じ商品の n 個注文で満たす組み合わせ:")
-        if len(c["groups"]) > 1:
-            for g in c["groups"]:
-                print(f"  [{g.get('count_unit') or g['basis']}]")
-                _print_orders(g, "    ")
-        else:
-            _print_orders(c, "  ")
+        if len(c["groups"]) > 1:                       # 主グループの結果。他の数え語のグループは JSON の groups[] にある
+            print(f"  （数え語の主グループ［{c['main_count_unit']}］。他の数え方の候補は比べていない）")
+        _print_orders(c, "  ")
     if c["caveats"]:
         print()
         print("断定できない理由・注意:")

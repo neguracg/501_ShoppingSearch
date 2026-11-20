@@ -123,6 +123,7 @@ class Comparison:
     order_plans: list[OrderPlan] = field(default_factory=list)
     cheapest_order: OrderPlan | None = None
     to_check: list[ToCheck] = field(default_factory=list)
+    main_count_unit: str | None = None       # 最上位の最安・注文を出した主グループの数え語（basis が個以外は None）
 
 
 def total_price(offer: Offer) -> int | None:
@@ -356,9 +357,23 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, name: str,
     return out
 
 
-COUNT_GROUP_CAVEAT = ("数え方の違う候補（{units}）は同じ単価順に並べていません。数え方ごとのグループに分け、最安もグループごとに出しています"
-                      "（MCP・CLI の結果では groups[] の中。最上位の cheapest_unit_price・cheapest_order・to_check は空）。"
-                      "1つに絞るには basis に数え語（本・袋・枚・ロールなど）を指定してください（MCP・CLI）")
+COUNT_GROUP_CAVEAT = ("数え方の違う候補（{others}）は比べていません。最上位の cheapest_unit_price・cheapest_order・to_check は"
+                      "主グループ［{main}］（main_count_unit）のもので、他のグループの結果は groups[] の中にあります。"
+                      "別の数え方で比べるには basis に数え語（本・袋・枚・ロールなど）を指定してください（MCP・CLI）")
+
+
+def _main_group(groups: list[ComparisonGroup]) -> ComparisonGroup | None:
+    """複数の数え語グループがある時の主グループ（WP14 W3 の改訂）。単位価格が出た候補の数が最多、同数なら確認済みの候補が多い方、
+    さらに同じなら最安の注文額（希望量が無ければ商品価格の最安）が安い方（それも同じなら数え語の順）。グループが 1 つならそれ。"""
+    if not groups:
+        return None
+
+    def key(g: ComparisonGroup):
+        ranked = [o for o in g.offers if o.unit_price is not None]
+        prices = [o.price for o in g.offers if o.price is not None]
+        cheapest = g.cheapest_order.order_total if g.cheapest_order else (min(prices) if prices else 10**12)
+        return (-len(ranked), -sum(1 for o in ranked if is_confirmed(o)), cheapest, g.count_unit or "")
+    return min(groups, key=key)
 
 
 def _split_groups(members: list[Offer], name: str, dim: str) -> list[ComparisonGroup]:
@@ -486,9 +501,10 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             desired_caveats.append(SHIPPING_LINE_CAVEAT)
     caveats.extend(desired_caveats)
 
+    only = _main_group(groups)
     if len(groups) > 1:
-        caveats.append(COUNT_GROUP_CAVEAT.format(units="・".join(g.count_unit for g in groups)))
-    only = groups[0] if len(groups) == 1 else None
+        caveats.append(COUNT_GROUP_CAVEAT.format(
+            main=only.count_unit, others="・".join(f"{g.count_unit} {len(g.offers)}件" for g in groups if g is not only)))
     meeting = only.cheapest_order.offer if only is not None and only.cheapest_order is not None else None
 
     caveats.append(SPEC_CAVEAT)
@@ -500,4 +516,5 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
                       caveats=caveats, notes=notes,
                       order_plans=only.order_plans if only else [],
                       cheapest_order=only.cheapest_order if only else None,
-                      to_check=only.to_check if only else [])
+                      to_check=only.to_check if only else [],
+                      main_count_unit=only.count_unit if only else None)

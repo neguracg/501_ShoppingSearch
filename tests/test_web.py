@@ -138,8 +138,8 @@ def test_compare_shows_caveats_notes_groups_and_label_split():
     assert "仕様の違い（濃縮・層数・型番・色など）は判定していません" in html   # 常設の注意
 
 
-def test_compare_with_mixed_count_units_shows_a_card_per_group_and_human_caveat():
-    # WP14 W3: basis 個で 本 と 個 が混ざる時。最上位の単価最安は空になるが、画面はグループごとに最安を出す
+def test_compare_with_mixed_count_units_shows_the_main_group_card_and_human_caveat():
+    # WP14 W3: basis 個で 本 と 個 が混ざる時。画面は主グループ（候補数が最多の 本）の最安を出し、数え方の違う候補は比べない
     mixed = [make_offer("a", "文化たきつけ 18本入り", 179, shipping_status="included"),
              make_offer("b", "文化たきつけ 18本入り ×2個セット", 580, shipping_status="included"),
              make_offer("c", "文化たきつけ10個セット", 3200, shipping_status="included")]
@@ -147,8 +147,8 @@ def test_compare_with_mixed_count_units_shows_a_card_per_group_and_human_caveat(
     r = c.get("/compare?q=文化たきつけ&basis=個")
     assert r.status_code == 200
     html = r.text
-    assert "1個あたり［本］の単価が最安" in html and "1個あたり［個］の単価が最安" in html
-    assert "数え方の違う候補（本・個）は同じ単価順に並べていません" in html
+    assert "1個あたり［本］の単価が最安" in html
+    assert "数え方の違う候補（個 1件）は比べていません" in html and "主グループ［本］" in html
     assert "［本］" in html and "［個］" in html                      # グループの見出し
     assert "該当なし" not in html.split("単価が最安", 1)[1].split("支払総額が最安", 1)[0]    # 単価の欄は空ではない
 

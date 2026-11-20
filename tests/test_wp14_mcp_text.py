@@ -48,5 +48,5 @@ def test_each_sentence_is_written_once_in_the_source():
 def test_compare_offers_has_the_upper_bound_parameter_and_counter_basis_text():
     t = tools()["compare_offers"]
     assert "desired_quantity_max" in t.input_schema["properties"]
-    assert "数え語（本・袋・枚・ロールなど）も指定でき" in t.description
+    assert "数え語（本・袋・枚など）も指定でき" in t.description
     assert "order_plans" in t.description and "count_unit" in t.description
