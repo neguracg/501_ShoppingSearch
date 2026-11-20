@@ -34,6 +34,7 @@ def test_cocodecow_is_48_rolls_100m_per_roll_4800m():
     "●長さ：100m●",                       # 全角コロン
     "【長さ】100m",
     "●長さ：約100m●",
+    "長さ 100m", "長さ100m", "●長さ／100m●",
     "●長さ：10000cm●",                    # 単位が違っても m に換算して同じ
 ])
 def test_other_forms_of_the_heading_value_are_read(caption):
@@ -43,8 +44,7 @@ def test_other_forms_of_the_heading_value_are_read(caption):
 
 @pytest.mark.parametrize("caption", [
     "●長さ2倍巻の100m●",                  # 値が数字＋長さの単位で始まらない
-    "長さ 約30cm のコード付き",            # 見出しの直後に区切りが無い（使用例の文）
-    "長さ 100m",
+    "長さ 約30cm のコード付き",            # 単位の直後（空白を読み飛ばして）が助詞（使用例の文）
     "●長さ：30cmにカット●",               # 単位の直後が助詞
     "●長さ：100mほど●", "●長さ：100mまで●", "●長さ：100mより●", "●長さ：100mの●", "●長さ：100mで●",
     "●長さ：100m（幅114mm）●",            # 単位付きの数が2つ（m と mm）
@@ -153,3 +153,11 @@ def test_cli_and_web_mark_the_filled_content_amount():
     d = service.offer_to_dict(_annotated(offer()))
     for text in (cli._qty(d), web_view._qty(d)):
         assert "48ロール × 100m" in text and "内容量を説明欄から補った・確認済みではない: 長さ:100mシングル" in text
+
+
+@pytest.mark.parametrize("caption,amount", [("長さ25m", 25.0), ("長さ 35m", 35.0), ("●長さ／25m●", 25.0),
+                                            ("●幅／50mm●長さ／50m●厚さ／0．14mm●", 50.0)])
+def test_heading_without_a_delimiter_and_slash_forms_are_read(caption, amount):
+    """録画のカウネット布テープ・ベイシアの形（見出しの直後が区切りでない・全角スラッシュ）。使用例の文は単位の直後の助詞で止める。"""
+    q = read_offer_quantity(offer(caption=caption))
+    assert (q.source, q.content_amount) == ("title+caption", amount)

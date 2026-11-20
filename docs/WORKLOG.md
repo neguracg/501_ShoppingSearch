@@ -121,3 +121,5 @@
 - 2026-11-21 WP15 段B 判断反映（オーケストレータ）: basis=数え語 で量が読めない候補（none・low）は「この商品1点が1数え語なら」の注文額が cheapest_order より安くなり得る時だけ to_check に出す（確認済みが無ければ全部）。出さない候補は unknown_offers に残り caveats に件数と理由。量が読めて数え語だけ違う候補と pack_content_differs は条件なしで全部残す（SPEC Q20・AC20 に1文）。再生 to_check 前→後: scottie 2→2（不変）・kairo_mai 1→10・takitsuke_hon 1→4・takitsuke_fukuro 0→17（yamakishi:10059276 は 168円×30＝5,040円＋送料の条件で残る。mayfair-17:10014877 は 291,300円で unknown_offers）
 
 - 2026-11-21 WP15 段B 独立レビュー反映: R1 low の題名は読めた個数の読み（quantity.count_readings。60セット）を仮定に使い、安くなり得れば条件つきで to_check（mayfair-17:10014877 が takitsuke_fukuro の to_check に出る）、B1 見出し `長さ` は直後に区切りがあり単位の直後が助詞でない時だけ（録画で補完 30→8 件・cocodecow は残る。減った分は `長さ25m`・`長さ／25m` の形）、B2 caveats と pack_content_differs の条件文に基準の中身と件数・多数決の注意、B3 BUGLOG にハッシュ。再生 to_check 前→後: scottie 2→2・kairo_mai 1→13・takitsuke_hon 1→4・takitsuke_fukuro 0→20。SPEC（W4・Q20・AC19・AC20）も同コミット
+
+- 2026-11-21 WP15 段B B1 緩和（オーケストレータ判断）: 見出し `長さ` の直後は区切り（: / ] 】 ／）・空白・数字の直付けのどれでもよく、誤読は「単位の直後（空白を読み飛ばして）が助詞」で止める（`長さ30cmにカット`・`長さ 約30cm のコード付き` は読まない）。録画 4,052 件の補完は 30 件（厳格版 8 件）→35 件。増えた 5 件（kaumall:10147098・10176833・10147099・10051611・10047663 のテープ 1〜6巻・50m/25m）を目視して誤り 0。SPEC W4 の文も同コミット

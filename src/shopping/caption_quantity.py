@@ -37,9 +37,9 @@ _HEAD = "|".join(HEADINGS)
 _HEADING_RE = re.compile(rf"(?<!\w)(?P<head>{_HEAD})[\]】」』)]?[\s:]*(?=約?\s*\d)")
 # 項目単位の補完（WP15 段B）の見出し。内容量の見出し（HEADINGS）とは別に持ち、値は「数字＋長さの単位」で始まる時だけ読む
 ITEM_HEADING = "長さ"
-# 見出しの直後に区切り（: ・ ] ・ 】 など）がある時だけ（`長さ 約30cm のコード付き` のような使用例の文は読まない）
-_ITEM_RE = re.compile(rf"(?<!\w)(?P<head>{ITEM_HEADING})(?:[\]】」』)][\s:]*|\s*:\s*)(?=約?\s*\d)")
-# 値の単位の直後が助詞（長さ30cmにカット・100mほど）の文は、内容量の記述ではない
+# 見出しの直後は区切り（: ・ / ・ ] ・ 】）・空白・数字の直付けのどれでもよい（長さ25m・長さ 35m・長さ／25m）。使用例の文は下の助詞で止める
+_ITEM_RE = re.compile(rf"(?<!\w)(?P<head>{ITEM_HEADING})[\]】」』)]?[\s:/]*(?=約?\s*\d)")
+# 値の単位の直後（空白を読み飛ばして）が助詞（長さ30cmにカット・長さ 約30cm のコード付き・100mほど）の文は、内容量の記述ではない
 _PARTICLE_AFTER = re.compile(r"\s*(?:に|で|の|を|は|が|ほど|まで|より)")
 # 値の終わり: 改行・見出し記号・句点・注記（※）・別の見出し（直前が語の文字でないもの）・「はこちら」
 _VALUE_END = re.compile(rf"[\n\r■●◆▼▲★☆【※。]|(?<!\w)(?:{_HEAD})|はこちら")
@@ -114,7 +114,7 @@ def read_caption(caption: str | None) -> CaptionReading | None:
 
 def read_length(caption: str | None) -> CaptionReading | None:
     """見出し `長さ` の値を 1 個あたりの内容量として読む（WP15 段B。個数だけ high の題名に重ねる）。全部同時に満たす時だけ:
-    見出しの直後に区切りがある／値が「約＋数字＋長さの単位」で始まり、単位の直後が助詞でない／値の中の単位付きの数が 1 つだけ（m と mm が混ざる値は採らない）／個数の記述が無い／
+    値が「約＋数字＋長さの単位」で始まり、単位の直後（空白を読み飛ばして）が助詞でない／値の中の単位付きの数が 1 つだけ（m と mm が混ざる値は採らない）／個数の記述が無い／
     単位あたりの言い回しが無い／見出しが複数あれば全部が同じ値。読めなければ None。"""
     if not isinstance(caption, str) or not caption:
         return None
@@ -124,7 +124,7 @@ def read_length(caption: str | None) -> CaptionReading | None:
     rx = _token_re(tuple(_unit_table()), tuple(_counter_table()))
     amounts: set[float] = set()
     for head, raw in segs:
-        value = _norm(raw[len(head):].lstrip("]】」』) :"))
+        value = _norm(raw[len(head):].lstrip("]】」』) :/"))
         start = re.match(r"約?\s*", value).end()
         first = rx.match(value, start)
         toks = list(rx.finditer(value))
