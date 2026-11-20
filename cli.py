@@ -91,7 +91,9 @@ def _qty(o: dict) -> str:
                  f"（計 {format_amount(q['measure_total'])}{q['content_unit']}）")
     if q.get("source") == "caption":
         text += "【説明欄の記述から補完・確認済みではない: " + str(q.get("caption_evidence")) + "】"
-    elif q.get("caption_conflict"):
+    elif q.get("source") == "title+caption":              # 項目単位の補完（§7 W4）: 内容量だけ説明欄の見出し付きの値。個数は題名のまま
+        text += "【内容量を説明欄から補った・確認済みではない: " + str(q.get("caption_evidence")) + "】"
+    if q.get("caption_conflict"):
         text += "【説明欄の「" + str(q.get("caption_evidence")) + "」と食い違い・要確認】"
     up = unit_price_text(o)
     return text + (f"（{up}）" if up else "")

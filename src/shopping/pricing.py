@@ -8,6 +8,7 @@ from collections import Counter
 from statistics import median
 from dataclasses import dataclass, field
 
+from . import counter_basis
 from .caption_quantity import read_offer_quantity
 from .inputs import check_desired_range, resolve_compare_basis
 from .models import Offer
@@ -132,6 +133,10 @@ class OrderPlan:
     shipping_status: str
     reasons: list[str] = field(default_factory=list)      # 確認済みでない理由（unconfirmed_reasons。空なら確認済み）
     count_unit: str | None = None
+    # 数え語の換算（WP15 段B。counter_basis.py）: reason → 条件文の前置き（counter_assumed「1袋が18本なら」・pack_content_differs）、
+    # 単価のラベル（他の数え語の候補を主グループの数え語で換算した案は、候補自身のラベルではなく主グループの「1枚あたり」）
+    notes: dict = field(default_factory=dict)
+    label: str | None = None
 
     @property
     def confirmed(self) -> bool:
@@ -315,8 +320,16 @@ def _qty_label(o: Offer) -> str:
     return f"{format_amount(q.count_total)}{q.count_unit}"          # 内容量は付けない（10枚×0.096m のような読み取りの癖を条件文に持ち込まない）
 
 
+def _assumed_reasons(reasons: list[str]) -> list[str]:
+    """換算の仮定を置いた案の理由（counter_basis.py）。数量が読めない（quantity_unknown）は仮定で置き換え、送料の理由の前に counter_assumed を入れる。"""
+    base = [r for r in reasons if r != "quantity_unknown"]
+    ship = [r for r in base if r in _SHIPPING_REASONS]
+    return [r for r in base if r not in _SHIPPING_REASONS] + ["counter_assumed"] + ship
+
+
 def _order_plan(o: Offer, amount: float, mult: float, desired: float, desired_max: float | None,
-                count_unit: str | None) -> tuple[OrderPlan | None, str | None]:
+                count_unit: str | None, *, assumed: str | None = None, notes: dict | None = None,
+                label: str | None = None) -> tuple[OrderPlan | None, str | None]:
     """候補 o を同じ商品で n 個注文する案。(案, 除外理由 "range" / None)。比は丸めてから切り上げる
     （0.9 ÷ 0.3 = 3.0000000000000004 で n を 4 にしない）。注文個数に上限は置かない（出典が無い。注文額の最安が選ぶ）。"""
     n = max(1, math.ceil(round(desired / amount, 9)))
@@ -326,9 +339,14 @@ def _order_plan(o: Offer, amount: float, mult: float, desired: float, desired_ma
     total = n * o.price
     if o.shipping_status == "separate" and o.shipping_fee is not None:
         total += o.shipping_fee                     # 送料額が分かる時だけ（楽天の検索 API では常に不明）。1 注文に 1 回
+    reasons = unconfirmed_reasons(o, shipping=True)
+    notes = dict(notes or {})
+    if assumed:                                     # 換算の仮定つき（to_check にだけ出す案。counter_basis.py）
+        reasons = _assumed_reasons(reasons)
+        notes["counter_assumed"] = assumed
     return OrderPlan(offer=o, n=n, order_quantity=quantity, order_total=total,
                      order_unit_price=total * mult / quantity, shipping_status=o.shipping_status,
-                     reasons=unconfirmed_reasons(o, shipping=True), count_unit=count_unit), None
+                     reasons=reasons, count_unit=count_unit, notes=notes, label=label), None
 
 
 def _unit_raw(p: OrderPlan) -> float:
@@ -355,6 +373,10 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
             pre.append(f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）、")
         elif r == "measure_from_caption":
             pre.append(f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）、")
+        elif r == "counter_assumed":
+            pre.append(f"{plan.notes.get(r, '')}、")
+        elif r == "pack_content_differs":
+            pre.append(plan.notes.get(r, "1袋の中身が違う。"))
         elif r == "unit_price_outlier":
             pre.append(f"{OUTLIER_NOTE}。数量が正しければ、")
     # 逆転できる上限額 X（この案の総額が X 円未満なら確認済みの最安より安い）
@@ -400,6 +422,11 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                                      "（説明欄が 1 パックあたりの記述のこともある）",
                  "quantity_from_caption": f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）",
                  "measure_from_caption": f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）",
+                 "counter_assumed": f"{plan.notes.get('counter_assumed', '')}、この商品を{plan.n}個注文すると "
+                                    f"{format_amount(plan.order_quantity)}{plan.count_unit or ''}相当・{plan.order_total:,}円"
+                                    "（換算の仮定。商品ページで確認）",
+                 "pack_content_differs": plan.notes.get("pack_content_differs", "1袋の中身が違う。")
+                                         + "基準と中身が違うので同じ最安競争にしていない。商品ページで確認",
                  "unit_price_outlier": OUTLIER_NOTE}
         text = "。".join(alone[r] for r in plan.reasons if r in alone)
     if not plan.reasons:
@@ -407,8 +434,36 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
     return [{"reason": "+".join(plan.reasons), "reasons": list(plan.reasons), "threshold": threshold, "text": text}]
 
 
+def _cheaper(p: OrderPlan, best: OrderPlan | None, by_unit: bool) -> bool:
+    """確認済みの最安 best より安くなり得る案か（best が無ければ全部）。量の指定は注文額、範囲指定は注文の単価（WP14 B1）。"""
+    if best is None:
+        return True
+    return _unit_raw(p) < _unit_raw(best) if by_unit else p.order_total < best.order_total
+
+
+def _plan_order(by_unit: bool):
+    """案の並び（量の指定は注文額・単価・コード、範囲指定は注文の単価・注文額・コード）。"""
+    if by_unit:
+        return lambda p: (_unit_raw(p), p.order_total, p.offer.mall_item_code)
+    return lambda p: (p.order_total, p.order_unit_price, p.offer.mall_item_code)
+
+
+def add_assumed_to_check(to_check: list[ToCheck], best: OrderPlan | None, assumptions, mult: float, desired: float,
+                         desired_max: float | None, count_unit: str | None, label: str | None) -> list[ToCheck]:
+    """換算の仮定つきの候補（counter_basis.Assumption）を、確認済みの最安 best より安くなり得る時だけ to_check に足す（並べ直して返す）。
+    cheapest_order・order_plans には入れない。"""
+    by_unit = desired_max is not None
+    extra: list[ToCheck] = []
+    for a in assumptions:
+        plan, _ = _order_plan(a.offer, a.amount, mult, desired, desired_max, count_unit, assumed=a.text, label=label)
+        if plan is not None and _cheaper(plan, best, by_unit):
+            extra.append(ToCheck(plan, _conditions(plan, best, by_unit)))
+    key = _plan_order(by_unit)
+    return sorted(to_check + extra, key=lambda t: key(t.plan))
+
+
 def build_order_section(members: list[Offer], amounts: dict[int, float], mult: float, desired: float,
-                        desired_max: float | None, count_unit: str | None = None):
+                        desired_max: float | None, count_unit: str | None = None, notes: dict | None = None):
     """members（単位の量が読めた候補）から注文案・確認済みの最安・逆転し得る候補を作る。
     量を指定した時（上限なし）は注文額が最小の案、範囲指定（上限あり）の時は注文の単価（注文額÷注文量）が最小の案を選ぶ
     （同じなら注文額が小さい方。WP14 B1）。(plans, cheapest_order, to_check, 範囲外の件数) を返す。"""
@@ -418,22 +473,15 @@ def build_order_section(members: list[Offer], amounts: dict[int, float], mult: f
     for o in members:
         if o.price is None:
             continue
-        plan, skipped = _order_plan(o, amounts[id(o)], mult, desired, desired_max, count_unit)
+        plan, skipped = _order_plan(o, amounts[id(o)], mult, desired, desired_max, count_unit,
+                                    notes=(notes or {}).get(id(o)))
         if plan is not None:
             plans.append(plan)
         else:
             out_of_range += 1
-    if by_unit:
-        plans.sort(key=lambda p: (_unit_raw(p), p.order_total, p.offer.mall_item_code))
-    else:
-        plans.sort(key=lambda p: (p.order_total, p.order_unit_price, p.offer.mall_item_code))
+    plans.sort(key=_plan_order(by_unit))
     best = next((p for p in plans if p.confirmed), None)
-
-    def cheaper(p: OrderPlan) -> bool:
-        if best is None:
-            return True
-        return _unit_raw(p) < _unit_raw(best) if by_unit else p.order_total < best.order_total
-    to_check = [ToCheck(p, _conditions(p, best, by_unit)) for p in plans if not p.confirmed and cheaper(p)]
+    to_check = [ToCheck(p, _conditions(p, best, by_unit)) for p in plans if not p.confirmed and _cheaper(p, best, by_unit)]
     return plans, best, to_check, out_of_range
 
 
@@ -478,11 +526,14 @@ def _main_group(groups: list[ComparisonGroup], by_unit: bool = False) -> Compari
     return min(groups, key=key)
 
 
-def _split_groups(members: list[Offer], name: str, dim: str) -> list[ComparisonGroup]:
+def _split_groups(members: list[Offer], name: str, dim: str, counter: str | None = None) -> list[ComparisonGroup]:
     """単位価格の出た候補を比較グループに分ける（WP14 W3）。basis が個（数える）の時は数え語（count_unit）ごと
-    （本・袋・枚・ロール・個…を同じ単価順に並べない）。大きいグループが先。ほかの次元は次元ごとに 1 つ。"""
+    （本・袋・枚・ロール・個…を同じ単価順に並べない）。大きいグループが先。ほかの次元は次元ごとに 1 つ。
+    basis に数え語を指定した時は 1 つ（count_unit がその数え語の候補と packs にその数え語がある候補を同じグループで比べる。WP15 段B）。"""
     if not members:
         return []
+    if counter:
+        return [ComparisonGroup(basis=name, dimension=dim, offers=members, count_unit=counter)]
     if dim != "count":
         return [ComparisonGroup(basis=name, dimension=dim, offers=members)]
     by: dict[str, list[Offer]] = {}
@@ -512,6 +563,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         o.unit_price_label = None
         o.unit_price_dimension = None
         o.unit_price_outlier = False
+        o.pack_content_differs = False
 
     name, dim = fixed if fixed else _auto_basis(candidates)
     mult, label = DISPLAY[dim]
@@ -521,12 +573,21 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     members: list[Offer] = []
     unknown: list[Offer] = []
     other_unit: list[Offer] = []
+    pack_offers: list[Offer] = []                       # basis=数え語 で packs の数を使う候補（counter_basis (b)）
+    others: list[Offer] = []                            # basis=数え語 で (a)(b) に入らない候補（換算の仮定つきで to_check に残す）
     amounts: dict[int, float] = {}
     for o in candidates:
         amount = _amount(o, dim)
-        if amount is not None and counter and o.quantity.count_unit != counter:
-            other_unit.append(o)                       # 数え語が違う（本を指定したのに袋）。単価を出さず、比べない
-            amount = None
+        if counter:
+            kind = counter_basis.counted_as(o, counter)
+            if kind == "pack":
+                amount = float(counter_basis.pack_of(o, counter)["count"])
+                pack_offers.append(o)
+            elif kind is None:
+                others.append(o)
+                if amount is not None:
+                    other_unit.append(o)               # 数え語が違う（本を指定したのに袋）。単価を出さず、比べない
+                amount = None
         if amount is None:
             unknown.append(o)
             continue
@@ -538,7 +599,18 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         members.append(o)
     members.sort(key=lambda o: (o.unit_price is None, o.unit_price or 0.0,
                                 o.price if o.price is not None else 10**12, o.mall_item_code))
-    groups = _split_groups(members, name, dim)
+    pack_notes: dict[int, dict] = {}
+    base = counter_basis.choose_base(pack_offers, counter, desired_quantity,
+                                     lambda o: not unconfirmed_reasons(o)) if counter else None
+    for o in pack_offers:                               # 1袋の中身が基準と食い違う候補は確認済みにしない（pack_content_differs）
+        if counter_basis.content_key(counter_basis.pack_of(o, counter)) != base:
+            o.pack_content_differs = True
+            pack_notes[id(o)] = {"pack_content_differs": counter_basis.differs_text(o, counter)}
+    assumptions: list[counter_basis.Assumption] = []
+    assume_why: str | None = None
+    if counter and desired_quantity is not None:
+        assumptions, assume_why = counter_basis.assume_for_counter(others, pack_offers, counter)
+    groups = _split_groups(members, name, dim, counter)
     outliers = [o for g in groups for o in mark_unit_price_outliers(g.offers)]      # 外れ値は数え語のグループの中で判定する
 
     priced = [o for o in candidates if o.price is not None]
@@ -549,8 +621,11 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if unknown:
         caveats.append(f"単価を出せない候補: {len(unknown)}件（比べる単位 {name} の量を商品名から"
                        "確定できないため、単位価格の最安の判定から外した）")
-    if other_unit:
-        caveats.append(f"数え語が {counter} でない候補: {len(other_unit)}件（比べる単位 {counter} の量を持たないので単価を出していない）")
+    other_unit_slot = len(caveats)                       # 件数は to_check が決まってから入れる（換算の仮定つきで出した候補は数えない）
+    caveats.append("")
+    if pack_offers:
+        caveats.append(f"包装の数（商品名の「18本入 2袋セット」の 2袋）を使って {counter} あたりを出した候補: {len(pack_offers)}件"
+                       "（1袋の中身が基準と一致する候補だけ確認済み。食い違う候補は pack_content_differs）")
     if outliers:
         caveats.append(f"単価が他の候補の 1/{OUTLIER_RATIO} 未満で、数量の読み違いの疑いがある候補: "
                        f"{len(outliers)}件（単位価格の最安・必要数量を満たす最安から外しています）")
@@ -593,7 +668,10 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         g.cheapest_unit_price = min(ranked, key=lambda o: (o.unit_price, o.price, o.mall_item_code))             if ranked else None
         if desired_quantity is not None:
             plans, best, to_check, out_of_range = build_order_section(
-                g.offers, amounts, mult, desired_quantity, desired_quantity_max, g.count_unit)
+                g.offers, amounts, mult, desired_quantity, desired_quantity_max, g.count_unit, pack_notes)
+            if counter:
+                to_check = add_assumed_to_check(to_check, best, assumptions, mult, desired_quantity, desired_quantity_max,
+                                                counter, label)
             g.order_plans, g.cheapest_order, g.to_check = plans, best, to_check
             desired_caveats += [(f"［{g.count_unit}］" if len(groups) > 1 else "") + c
                                 for c in _group_caveats(plans, best, g.count_unit or name, desired_quantity,
@@ -619,6 +697,27 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             others = [g.count_unit for g in groups if g is not only and g.count_unit != "個"]      # basis の「個」は全数え語の意味なので勧めない
             hint = f"{others[0]}で数えるなら basis={others[0]} を指定してください" if others else "別の数え方なら basis に数え語を指定してください"
             caveats.append(f"希望量 {rng} は主グループの数え方［{only.count_unit}］として扱いました（他のグループにも同じ数を当てた結果は groups[] の中）。{hint}")
+    cross_unit: list[counter_basis.Assumption] = []
+    if dim == "count" and not counter and len(groups) > 1 and desired_quantity is not None and only is not None:
+        # basis が個で数え語が複数: 主グループと違う数え語の候補は、確認済みの横断比較はせず、主グループの to_check に
+        # 「1個が1枚なら」の条件つきで出す（WP15 段B・Q19）
+        cross_unit = counter_basis.assume_for_main([o for g in groups if g is not only for o in g.offers], only.count_unit)
+        only.to_check = add_assumed_to_check(only.to_check, only.cheapest_order, cross_unit, mult, desired_quantity,
+                                             desired_quantity_max, only.count_unit, f"1{only.count_unit}あたり")
+    top_to_check = only.to_check if only else []
+    if only is None and assumptions:           # 比べられる候補（グループ）が無くても、換算の仮定つきの候補は最上位の to_check に出す
+        top_to_check = add_assumed_to_check([], None, assumptions, mult, desired_quantity, desired_quantity_max, counter, label)
+    placed = {id(t.plan.offer) for t in top_to_check} | {id(t.plan.offer) for g in groups for t in g.to_check}   # 換算の仮定つきで出した候補（WP15 段B）
+    other_unit = [o for o in other_unit if id(o) not in placed]
+    if other_unit:
+        caveats[other_unit_slot] = (f"数え語が {counter} でない候補: {len(other_unit)}件"
+                                    f"（比べる単位 {counter} の量を持たないので単価を出していない）")
+    else:
+        del caveats[other_unit_slot]
+    for items, why in ((assumptions, assume_why), (cross_unit, None)):
+        text = counter_basis.caveat([a for a in items if id(a.offer) in placed], counter or (only.count_unit if only else ""), why)
+        if text:
+            caveats.append(text)
     meeting = only.cheapest_order.offer if only is not None and only.cheapest_order is not None else None
 
     caveats.append(SPEC_CAVEAT)
@@ -630,5 +729,5 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
                       caveats=caveats, notes=notes,
                       order_plans=only.order_plans if only else [],
                       cheapest_order=only.cheapest_order if only else None,
-                      to_check=only.to_check if only else [],
+                      to_check=top_to_check,
                       main_count_unit=only.count_unit if only else None)

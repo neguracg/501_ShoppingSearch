@@ -99,6 +99,7 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
             "evidence": q.evidence,
             "content_amounts": dict(q.content_amounts or {}),
             "source": q.source, "caption_evidence": q.caption_evidence, "caption_conflict": q.caption_conflict,
+            "packs": [dict(x) for x in (q.packs or [])],                        # 包装の数（§7。常に出す。読めなければ []）
             "caption_candidate": None if q.caption_candidate is None else dict(q.caption_candidate)},
         **price_fields,
         "unit_price_label": offer.unit_price_label,
@@ -273,7 +274,7 @@ def order_plan_to_dict(p: OrderPlan) -> dict:
         "payment_total": p.order_total if kind == "payment_total" else None,
         "order_total_kind": kind,
         **_price_fields(p.order_unit_price, unit_price_reasons(p.reasons), "order_unit_price"),
-        "unit_price_label": o.unit_price_label,
+        "unit_price_label": p.label or o.unit_price_label,           # 他の数え語の候補を主グループの数え語で換算した案は主グループのラベル
         "shipping_status": p.shipping_status, "count_unit": p.count_unit,
         "quantity_source": None if q is None else q.source, "caption_evidence": None if q is None else q.caption_evidence,
         "confirmed": p.confirmed, "unconfirmed_reasons": list(p.reasons),

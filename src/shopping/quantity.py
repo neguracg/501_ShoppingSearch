@@ -13,6 +13,7 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from .models import QuantityInfo
+from .pack_forms import read_packs
 
 # 単位の換算表: 別名 → (次元, 基準単位への係数)。大文字小文字・全角半角は区別せずに引く（NFKC＋casefold。
 # 照合キーが同じになる別名は書かない: mL は ml、ℓ は L と同じ。import 時に検査する）。
@@ -62,6 +63,9 @@ CONTAINERS = frozenset({"パック", "袋", "セット", "ケース", "梱"})
 
 # P4: 同じ数が続く時に「外側の入れ物」として掛け算にする容器語（3個入り 3セット → 9）
 OUTER_WORDS = frozenset({"セット", "ケース", "パック", "箱", "袋"})
+
+# 包装の数（pack_forms.py。WP15 段B）の包装語: 容器語・外側の語に 個・コ・缶・本・箱 を足したもの
+PACK_WORDS = frozenset(OUTER_WORDS | CONTAINERS | {"個", "コ", "缶", "本", "箱"})
 
 # 数え語としての条件が文脈で変わる語（X1）。表の別名（正規化後）で持つ
 SOLO_LOW_COUNTERS = frozenset({"P"})           # ×・入数に続かない単独の NP は high にしない（60P 対応）
@@ -880,4 +884,5 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
         count_total=total, count_unit=word, content_amount=amount,
         content_dimension=dim, content_unit=base_unit(dim) if dim else None,
         measure_total=None if amount is None else round(total * amount, 9),
-        confidence="high", evidence=evidence, content_amounts=amounts)
+        confidence="high", evidence=evidence, content_amounts=amounts,
+        packs=read_packs(_norm(text), total, _counter_table(), PACK_WORDS))     # 包装の数（WP15 段B。総数は変えない）

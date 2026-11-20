@@ -142,3 +142,11 @@ def test_search_products_quantity_shows_the_source():
 def _annotated(o):
     o.quantity = read_offer_quantity(o)
     return o
+
+
+def test_cli_and_web_mark_the_filled_content_amount():
+    import cli
+    from shopping import web_view
+    d = service.offer_to_dict(_annotated(offer()))
+    for text in (cli._qty(d), web_view._qty(d)):
+        assert "48ロール × 100m" in text and "内容量を説明欄から補った・確認済みではない: 長さ:100mシングル" in text

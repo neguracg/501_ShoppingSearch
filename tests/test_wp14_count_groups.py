@@ -142,9 +142,12 @@ def test_other_values_are_still_invalid(bad):
 
 
 def test_basis_counter_with_no_matching_candidates_says_so():
-    r = compare(takitsuke(), basis="袋", desired_quantity=30)
+    # c36（18本入 2袋セット）は SPEC §8 Q20（WP15 段B）で packs の 2袋 を持つ候補として袋で比べられる。ここは袋の裏付けが無い 4 件だけ
+    r = compare([o for o in takitsuke() if o.mall_item_code != "c36"], basis="袋", desired_quantity=30)
     assert r.groups == [] and r.cheapest_order is None
-    assert len(r.unknown_offers) == 5 and any("数え語が 袋 でない候補: 5件" in c for c in r.caveats)
+    assert len(r.unknown_offers) == 4        # 単価は出さない。換算の仮定つきで to_check に残る（counter_assumed。Q20）
+    assert {t.plan.offer.mall_item_code for t in r.to_check} == {"p18", "f36", "n10", "n60"}
+    assert all("counter_assumed" in t.plan.reasons for t in r.to_check)
     assert any("必要数量" in c and "30" in c for c in r.caveats)
 
 
