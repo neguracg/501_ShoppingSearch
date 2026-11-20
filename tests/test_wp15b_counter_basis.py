@@ -67,18 +67,26 @@ def test_basis_counter_keeps_every_assumed_candidate_even_when_it_is_not_cheaper
     big = by(r, "big")
     assert big.plan.order_total == 99999 * 1 and big.conditions[0]["threshold"] is None     # 100袋相当 1個。確認済みの 13,200 円より高いが残る
     assert "この商品の1個が1袋なら" in big.conditions[0]["text"]
-    assert not any("数え語が 袋 でない候補" in c for c in r.caveats)                     # 仮定つきで出した候補は数えない
+    assert not any("数え語が 袋 でない候補" in c for c in r.caveats)                     # 仮定つきで出した候補は数えない（量が読める big は条件なしで残る）
 
 
-def test_a_low_title_is_treated_like_none_one_item_is_one_bag():
-    """mayfair-17:10014877: 題名は 60セット入り 1箱 でも『マッチ1本で』の 1 が総数と食い違って low。量が読めないので 1点＝1袋。"""
-    low = off("mf60", MAYFAIR60, 9710, ship="separate")
+def test_unreadable_quantity_candidates_are_listed_only_when_they_could_be_cheaper():
+    """量が読めない候補（none・low。low も none と同じ扱い）は『この商品1点が1袋なら』の注文額が確認済みの最安より安くなり得る時だけ to_check。
+    出さない候補は unknown_offers に残り、caveats に件数と理由が出る。"""
+    low = off("mf60", MAYFAIR60, 9710, ship="separate")                    # mayfair-17:10014877。『マッチ1本で』の 1 で low
     assert low.quantity.confidence == "low"
     r = compare(base_set() + [low], basis="袋", desired_quantity=30)
-    t = by(r, "mf60")
-    assert t.plan.n == 30 and t.plan.order_total == 9710 * 30 and t.plan.reasons == ["counter_assumed", "shipping_separate"]
-    assert t.conditions[0]["text"].startswith("この商品1点が1袋なら、送料別。")
-    assert "mf60" not in [p.offer.mall_item_code for p in r.order_plans] and r.cheapest_order.offer.mall_item_code == "cololo"
+    assert "mf60" not in {t.plan.offer.mall_item_code for t in r.to_check}      # 30点 = 291,300 円は 13,200 円より高い
+    assert "mf60" in [o.mall_item_code for o in r.unknown_offers]
+    assert any("確認済みの最安より安くなり得ない候補: 1件" in c for c in r.caveats)
+    cheap = off("lowcheap", "文化たきつけ マッチ1本で着火 18本入 2セット 24本", 100, ship="separate")
+    assert cheap.quantity.confidence != "high"
+    t = by(compare(base_set() + [cheap], basis="袋", desired_quantity=30), "lowcheap")
+    assert t.plan.n == 30 and t.conditions[0]["text"].startswith("この商品1点が1袋なら、送料別。")
+    assert t.plan.reasons == ["counter_assumed", "shipping_separate"]
+    # 確認済みが 1 件も無い時は全部出す（Q16）
+    only_low = compare([low, off("yama", "富士屋 文化たきつけ [着火剤]", 168, ship="separate")], basis="袋", desired_quantity=30)
+    assert {t.plan.offer.mall_item_code for t in only_low.to_check} == {"mf60", "yama"}
 
 
 def test_caveat_names_the_count_of_assumptions_and_the_ground():
@@ -164,8 +172,8 @@ def test_basis_hon_still_works_the_old_way():
     r = compare(base_set(), basis="本", desired_quantity=540)
     assert {o.mall_item_code for o in r.groups[0].offers} == {"cololo", "mf36", "fans10", "p18"}
     assert r.cheapest_order.confirmed
-    # basis=本 でも数え語が違う候補（n10 の 10個セット）・数量が読めない候補（yama）は、Q20 のとおり換算の仮定つきで to_check に残る
-    assert {t.plan.offer.mall_item_code for t in r.to_check if "counter_assumed" in t.plan.reasons} == {"n10", "yama"}
+    # basis=本 でも数え語が違う候補（n10 の 10個セット）は、Q20 のとおり換算の仮定つきで必ず to_check に残る。量が読めない yama（168円×540点）は安くなり得ないので出ない
+    assert {t.plan.offer.mall_item_code for t in r.to_check if "counter_assumed" in t.plan.reasons} == {"n10"}
 
 
 # --- 数え語が複数のグループ（basis が個）: 主グループと違う数え語 -----------------------------------

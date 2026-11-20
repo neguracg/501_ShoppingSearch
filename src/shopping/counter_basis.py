@@ -26,7 +26,7 @@ class Assumption:
     offer: Offer
     amount: float
     text: str
-
+    keep: bool = False        # True＝確認済みの最安との比較をせず必ず to_check に残す（量が読めて換算できる候補。Q20）。False＝より安くなり得る時だけ
 
 def counted_as(o: Offer, counter: str) -> str | None:
     """候補を basis=数え語 でどう数えるか。"count"（count_unit が数え語。a）／"pack"（packs に数え語がある。b）／None。"""
@@ -106,10 +106,10 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
         if q is not None and q.confidence == "high" and q.count_total:
             if base is not None and q.count_unit == base[1] and q.count_total % base[0] == 0:
                 note = f"（根拠: {_source_text(pack_offers)}）"
-                out.append(Assumption(o, q.count_total / base[0], f"1{counter}が{base[0]}{base[1]}なら{note}"))
+                out.append(Assumption(o, q.count_total / base[0], f"1{counter}が{base[0]}{base[1]}なら{note}", keep=True))
                 used_base = True
             else:
-                out.append(Assumption(o, float(q.count_total), f"この商品の1{q.count_unit}が1{counter}なら"))
+                out.append(Assumption(o, float(q.count_total), f"この商品の1{q.count_unit}が1{counter}なら", keep=True))
         else:
             out.append(Assumption(o, 1.0, f"この商品1点が1{counter}なら"))
     why = (f"1{counter}＝{base[0]}{base[1]}は候補 {len(pack_offers)}件の商品名から（{_source_text(pack_offers)}）"
