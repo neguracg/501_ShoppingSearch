@@ -596,17 +596,17 @@ def test_ac20_no_desired_keeps_old_unknown_behaviour_for_non_bag_candidates():
 
 def test_ac20_not_empty_when_no_bag_candidate_exists():
     # AC20: 袋の候補が 1 件も無くても候補ゼロにならない（文化たきつけ basis=袋・desired=30 の型）。確認済みが無いので
-    # 確認済みでない案を全部 to_check に出し（閾値なし）、cheapest_order は null。② 1袋の中身は決まらない。
-    #   H18: 18本=18袋相当 → n=ceil(30÷18)=2・327×2=654円。G10: 180袋相当 → n=1・2330円。Y0: n=30・5040円。
+    # to_check には確認済みでない案を全部出し（閾値なし）、cheapest_order は null。
+    #   Y0（数量 none）は「この商品1点が1袋なら」: n=30・5040円。
+    #   H18（18本）・G10（180本）は中身を数える語（本）で、packs の候補が無く 1袋の中身の基準が決まらない →
+    #   仮定を置かず unknown_offers に残す（Q20 の確定の訂正。「18袋・180袋相当」は出ない）。
     c, r = _cmp([_o("g10", G10, 2330), _o("h18", H18, 327, ship="separate"), _o("y0", Y0, 168, ship="separate")],
                 basis="袋", desired_quantity=30)
     assert c["cheapest_order"] is None and c["cheapest_unit_price"] is None
-    assert _tc_names(c) == {G10, H18, Y0}
-    assert (_tc(c, H18)["n"], _tc(c, H18)["order_total"]) == (2, 654)
-    assert (_tc(c, G10)["n"], _tc(c, G10)["order_total"]) == (1, 2330)
+    assert _tc_names(c) == {Y0}
     assert (_tc(c, Y0)["n"], _tc(c, Y0)["order_total"]) == (30, 5040)
-    assert "この商品の1本が1袋なら" in _ctext(_tc(c, H18)) and "この商品の1本が1袋なら" in _ctext(_tc(c, G10))
     assert "この商品1点が1袋なら" in _ctext(_tc(c, Y0))
+    assert {G10, H18} <= set(_unknown_names(c)) and not ({G10, H18} & {p["name"] for p in c["order_plans"]})
     assert all(x["threshold"] is None for t in c["to_check"] for x in t["conditions"])   # 確認済みが無い時は閾値なし
     _scan(r)
 
@@ -697,15 +697,20 @@ def test_ac20_pack_content_differs_is_kept_in_plans_and_to_check():
     _scan(r)
 
 
-def test_ac20_when_one_bag_content_is_not_unique_assumption_falls_back_to_this_product():
-    # Q20 ①②: (b) の 1袋の中身が 18本と 9本の 2 通り → ① は使えず ② 「この商品の1本が1袋なら」。
-    #   G10: 180本 → 180袋相当 → n=ceil(30÷180)=1・2330円。M36: 36袋相当 → n=1・590円。
-    c, _ = _d2()
-    for name, total in ((G10, 2330), (M36, 590)):
-        t = _tc(c, name)
-        assert t["n"] == 1 and t["order_total"] == total
-        assert "この商品の1本が1袋なら" in _ctext(t) and "1袋が18本なら" not in _ctext(t)
-        assert "counter_assumed" in _creasons(t)
+def test_ac20_content_counter_without_unique_base_makes_no_assumption():
+    # Q20（確定の訂正）: 「1<数え語>が1袋なら」の1対1の仮定は、その数え語が包装の語（パック・ケース・個・箱・袋・セット等）の
+    # 時だけ。中身を数える語（本・枚・ロール等）は、1袋の中身の基準が一意なら換算し、一意でなければ仮定を置かず
+    # unknown_offers に残す。(b) の 1袋の中身が 18本と 9本の 2 通り → G10（180本）・M36（36本）・BIG540（540本・12,000円）は
+    # 「180袋・36袋・540袋相当」を作らない（to_check・order_plans に出ず、unknown_offers に残る）。
+    big = "文化たきつけ 540本"
+    c, r = _d2(extra=[_o("big", big, 12000)])
+    for n in (G10, M36, big):
+        assert n not in _tc_names(c) and n in _unknown_names(c), n
+        assert n not in {p["name"] for p in c["order_plans"]} and n not in _selected_names(c), n
+    assert "1本が1袋なら" not in " ".join(_ctext(t) for t in c["to_check"])
+    # 食い違い（B3）は従来どおり to_check に残る
+    assert B3 in _tc_names(c)
+    _scan(r)
 
 
 def test_ac20_base_is_the_majority_value_not_the_cheapest():
