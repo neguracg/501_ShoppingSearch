@@ -632,6 +632,24 @@ def test_ac20_mayfair_low_title_reaches_to_check_with_reading_as_assumption():
     _scan(r)
 
 
+LOW36 = "文化たきつけ 36本 マッチ1本で簡単着火 焚き火用"   # 題名に食い違う数があり low。題名に読めた個数の読みは 36本
+
+
+def test_ac20_low_title_reading_in_the_content_counter_uses_the_base_not_one_per_bag():
+    # Q20（追加の訂正）: 題名 low の候補の読み（36本）が 1袋の中身と同じ数え語（基準 18本入の 本）なら、
+    # 「1本が1袋なら」（36袋相当）ではなく基準で換算する: 36本÷18本＝2袋相当 → n=ceil(30÷2)=15・590×15=8850円（< 13200円）。
+    # 条件文は「1袋が18本なら」。「36袋相当」（n=1・590円）は出ない。「1<数え語>が1袋なら」は数え語が中身と違う時（セット・個）だけ。
+    c, r = _d1(more=[_o("l36", LOW36, 590)])
+    t = _tc(c, LOW36)
+    text = _ctext(t)
+    assert t["n"] == 15 and t["order_total"] == 8850 and t["order_quantity"] == 30
+    assert "1袋が18本なら" in text and "1本が1袋なら" not in text
+    assert "counter_assumed" in _creasons(t) and list(t["unit_price_unconfirmed_reasons"]) == ["counter_assumed"]
+    assert t["order_unit_price"] is None and t["provisional_order_unit_price"] == pytest.approx(295.0, abs=0.01)
+    assert LOW36 in _unknown_names(c) and LOW36 not in _selected_names(c)
+    _scan(r)
+
+
 def test_ac20_unreadable_candidates_appear_only_when_they_could_be_cheaper():
     # Q20（量が読めない候補）: 仮定の注文額が cheapest_order（13200円）より安くなり得る時だけ to_check。
     #   MAYFAIR 90000円（n=1・90000円）・Y0 1000円（none・n=30・30000円）は 13200 を超えるので出ない。
