@@ -226,6 +226,8 @@ def test_invalid_search_input_is_an_error_result_with_credit_and_costs_nothing(a
     {"keywords": ["aa"], "exclude_terms": ["aa", "bb", "cc", "dd", "ee", "ff"]},
     {"keywords": ["aa"], "desired_quantity": 0}, {"keywords": ["aa"], "desired_quantity": -5},
     {"keywords": ["aa"], "sort": "bogus"},
+    {"keywords": ["aa"], "desired_quantity": 50, "desired_quantity_max": 10},        # WP14 W2: 上限 < 下限
+    {"keywords": ["aa"], "desired_quantity_max": 10},                                # 上限だけ
 ])
 def test_invalid_compare_input_is_an_error_result_and_never_calls_the_api(args):
     app, ad = make_app("")
@@ -244,6 +246,17 @@ def test_valid_extremes_pass_the_public_check():
             "basis": "kg", "desired_quantity": 5000.5}))
     assert d["ok"] and d["comparison"]["basis"] == "g"
     assert ad.calls and ad.calls[0][1]["sort"] == "+itemPrice"
+
+
+def test_public_compare_returns_order_plans_for_a_desired_range():
+    app, ad = make_app("")
+    with TestClient(app) as tc:
+        d = data(rpc(tc, "", "compare_offers", {"keywords": ["洗濯洗剤"], "basis": "g", "desired_quantity": 5000,
+                                                  "desired_quantity_max": 12000}))
+    c = d["comparison"]
+    assert d["ok"] and d["desired_quantity_max"] == 12000 and c["cheapest_order"]["confirmed"] is True
+    assert c["cheapest_for_quantity"]["item_code"] == c["cheapest_order"]["item_code"]
+    assert c["groups"][0]["order_plans"] == c["order_plans"]
 
 
 def many_pages(n_per_page=30, pages_n=3, total=None, keyword="洗濯洗剤"):

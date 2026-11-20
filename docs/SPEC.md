@@ -198,7 +198,7 @@ S1〜S11・W1〜W5 との整理（矛盾箇所の注記）:
 - 単位価格 = 価格 ÷（basis が "個" なら count_total、内容量の次元なら measure_total）。表示用に「100ml あたり」「100g あたり」「1m あたり」「1個あたり」「1W あたり」等の表示単位を付ける（表示換算は表で持つ）。
 - グループは **basis の次元が同じもの** だけ。basis の量が読めない候補は「単価不明」グループに入れ、単位価格の最安判定から外す（件数を caveats）。サイズ違い・入り数違いはグループを分けない（単価で比べるため）。
 - 語の絞り込み: `include_terms`（全部を商品名に含むものだけ残す）・`exclude_terms`（どれかを含むものは外す。既存の ng_keyword とは別に商品名で判定）。外した件数を notes に出す。
-- 区別して出す4種類は維持: 商品単価最安／単位価格最安／支払総額最安（送料不明なら断定しない）／必要数量を満たす最安（`desired_quantity` は basis の単位で解釈）。
+- 区別して出す4種類は維持: 商品単価最安／単位価格最安／支払総額最安（送料不明なら断定しない）／必要数量を満たす最安（`desired_quantity` は basis の単位で解釈。WP14 W2 で「同じ商品を n 個注文する組み合わせ」の最安 `cheapest_order` と同じ候補に変更。Q10・Q16〜Q18）。
 - **caveats に常に2行**:「仕様の違い（濃縮・層数・型番・色など）は判定していません。商品名で確認してください。」「数量は商品名からの読み取りで、誤ることがあります。購入前に商品ページで確認してください。」（この順で末尾に付く。既知の限界は §7）
 - 単価は丸める前の値で比較し、表示は小数2桁。
 - **単価の外れ値（WP10）**: 単位価格が出ている候補が **4 件以上**ある比較グループでは、単位価格の中央値の **1/10 未満**の候補に外れ値の印（`Offer.unit_price_outlier`）を付け、「数量の読み違いの疑い」として `cheapest_unit_price`・`cheapest_for_quantity`（数量を使う2つ）から外す。`cheapest_price`・`cheapest_total`（数量を使わない2つ）は変えない。候補は一覧に残し、公開Web・公開MCP・CLI が「単価が他の候補と桁違いに安い。数量の読み違いの疑い。商品ページで確認」を出す。caveats に「単価が他の候補の 1/10 未満で、数量の読み違いの疑いがある候補: N件（単位価格の最安・必要数量を満たす最安から外しています）」（0件なら出さない）。題名の読み方の言い回しではなく**結果の形**で拾う網で、失敗の向きは「本物の桁違いの掘り出し物が最安に出ない」。高すぎる側（中央値×10 超）は最安の誤りにならないので扱わない。判定は `pricing.mark_unit_price_outliers` の1か所（表示側は印を出すだけ）。N・K の根拠は下の「単価の外れ値の N・K」。
@@ -216,7 +216,10 @@ S1〜S11・W1〜W5 との整理（矛盾箇所の注記）:
 - Q7 自動判定の「過半」は confidence=high の候補を分母にし、**半数を超える**時だけ（ちょうど半数は「個」）。
 - Q8 単価不明は `unknown_offers` に入れ、どのグループにも入れず `unit_price=None`。件数を caveats に「単価を出せない候補: N件」。
 - Q9 「個」グループの dimension は "count"。
-- Q10 `desired_quantity` は basis の単位（L・kg 等の別名を basis に指定した時も基準単位 ml・g で解釈）。1商品で basis の量が desired 以上のもののうち、価格（price）が最小のもの。複数買いは考えない。
+- Q10（WP14 W2 で変更。旧: 1商品で basis の量が desired 以上のうち価格最小・複数買いは考えない）`desired_quantity` は希望量の**下限**（basis の単位。L・kg 等の別名を basis に指定した時も基準単位 ml・g で解釈）、`desired_quantity_max` は**上限**（任意。下限と一緒に指定する。上限だけ・上限 < 下限は InvalidInput）。**同じ商品を n 個注文する**案を各候補（basis の量が読めた候補）について作る: n = ceil(下限 ÷ 1個の量)（比を 9 桁に丸めてから切り上げ。0.9÷0.3 を 4 個にしない）、注文量 = n × 1個の量、注文額 = n × 価格（送料額が分かる時だけ 1 注文に 1 回足す。検索 API では常に不明）、注文の単価 = 注文額 ÷ 注文量（表示単位あたり）、送料は `shipping_status` のまま（込みなら n 個でも込み）。上限があれば**注文量 ≤ 上限**の案だけ範囲内（超える案は除き、件数を caveats）。n が 1000 を超える案は除く。異なる商品の混ぜ合わせはしない。
+- Q16（WP14 W2）結果の `order_plans`（範囲内の案を注文額の安い順。各 n・注文量・注文額・注文の単価・送料の状態・確認済みか・確認済みでない理由）、`cheapest_order`（**確認済み**＝数量が商品名から high・価格が選択肢で変わらない・外れ値でない・**送料込み**の案の中で注文額が最小。無ければ null）、`to_check`（逆転し得る候補。確認済みの最安より注文額が安いが確認済みでない案。各候補に `conditions`＝理由ごとの条件の文と閾値: 送料別・不明 →「注文全体の送料が X円未満ならこちらが安い（X = cheapest_order の注文額 − この案の注文額）」、選択肢で価格が変わる →「商品名の数量（60枚）の選択肢の価格が X円以下ならこちらが安い（X = n×価格 < cheapest_order の注文額 を満たす最大の整数）」、説明欄から補完した数量 →「説明欄『…』の数量が正しければ」、外れ値 → 数量の読み違いの疑い。確認済みが 1 件も無い時は、確認済みでない案を注文額の安い順に全部出し〔閾値なし〕、足りない条件の内訳を caveats に書く。最大 20 件）。注文案の dict は商品を特定する項目（item_code・name・shop_name・url・price・価格幅）と注文の数字だけで、候補の全項目は `groups[].offers` にある。希望量を指定しない時は空・null。
+- Q17（WP14 W2）**送料無料ライン（3,980円など）を仮定しない**。送料別・不明の案は注文額がそのラインを超えても送料込みにしない（楽天公式 FAQ: ラインを超えても送料がかかる商品がある。https://ichiba.faq.rakuten.net/detail/000013788 ）。送料別・不明の案がある時、caveats に1行（送料額・発送目安は API に無いので商品ページで確認）。
+- Q18（WP14 W2）`cheapest_for_quantity` は互換のため残し、**`cheapest_order` と同じ候補**（1個買いだけの判定はやめた）。Web 画面は希望量を使わない（表示は変わらない）。定番品マスタ（§9）は `desired_quantity` の下限だけを持つ（上限は未対応）。
 - Q11 送料不明の候補がある時は `cheapest_total=None` とし、caveats に「送料」を含む理由を書く。
 - Q12 notes の書式は「含む語で除外: N件」「除く語で除外: N件」（0件なら出さない）。
 - Q13（WP10）`Offer.unit_price_outlier: bool`（既定 False。比較が毎回書き直す）。単位価格が出ている候補（グループ）が `OUTLIER_MIN_GROUP`=4 件以上の時だけ、`unit_price < 中央値 / OUTLIER_RATIO`（=10。厳密に未満。ちょうど 1/10 は掛けない）の候補が True。中央値の定義上、全部が外れ値になることはない。件数が足りなければ全部 False。
@@ -274,7 +277,7 @@ S1〜S11・W1〜W5 との整理（矛盾箇所の注記）:
 ## 10. MCP サーバー（mcp_server.py）
 
 - stdio の MCP サーバー。ツール: `search_products` / `compare_offers` / `find_regular_item`。
-- `compare_offers(keywords, include_terms=None, exclude_terms=None, desired_quantity=None, basis=None, ng_keyword, min_price, max_price, sort, pages)`（pages 省略＝全件）。`required_spec` と `unit="ロール"` 既定は廃止（§8）。結果の各候補に `quantity`（§7 の項目）と `unit_price`・`unit_price_label`、`comparison` に §8 Q1 のキー（`basis` `basis_label` `groups` `unknown_offers` `cheapest_*` `caveats` `notes`）。
+- `compare_offers(keywords, include_terms=None, exclude_terms=None, desired_quantity=None, basis=None, ng_keyword, min_price, max_price, sort, pages, start_page, desired_quantity_max=None)`（pages 省略＝全件。`desired_quantity` は希望量の下限、`desired_quantity_max` は上限〔任意〕。同じ商品を n 個注文する組み合わせを `comparison.order_plans`・`cheapest_order`・`to_check` に返す。§8 Q10・Q16〜Q18）。`required_spec` と `unit="ロール"` 既定は廃止（§8）。結果の各候補に `quantity`（§7 の項目）と `unit_price`・`unit_price_label`、`comparison` に §8 Q1 のキー（`basis` `basis_label` `groups` `unknown_offers` `cheapest_*` `caveats` `notes`）。
 - INSTRUCTIONS・ツール説明は特定カテゴリを前提にしない。「include_terms に仕様（例: 『詰め替え』『ダブル』『単3』）を入れる」「仕様差の判定は AI 側の責任」を明記し、例は3カテゴリ以上。
 - **ツール説明の注意（WP11-1。`search_products`・`compare_offers` の説明に入れる。文は mcp_server.py の `_NOT_JUDGED` と各ツール説明の1か所だけ）**: (1) 道具は商品の種類・仕様（本体／交換部品・付属品、純正／互換、型番・世代違い、単3／単4、炭酸／非炭酸、本体／詰め替え など）を判定しない。利用者の指定に合わない候補は `include_terms`・`exclude_terms`（商品名で判定）や `ng_keyword` で絞ってから比べ、最終回答の前に商品名で照合する。(2) `quantity.confidence` が high でない候補（単価不明）と `unit_price_outlier` が true の候補は、最安・おすすめとして示さない（示す時は理由と『商品ページで確認』を添える）。(3) `cheapest_price` は商品価格だけの最安で、送料が不明な候補を『送料込み最安』と呼ばない。道具が商品の意味を判定する機構ではなく、呼び出し側の AI への指示（SPEC §7・§8 の範囲は変えない）。
 - **stdio MCP と CLI の既定はモック**（架空データ。API を呼ばない）。実 API は CLI の `--live`、stdio MCP の環境変数 `SHOPPING_LIVE=1` を明示した時だけ（§11）。`SHOPPING_MOCK=1` / `--mock` は互換のため残す（明示のモックは常に勝つ）。公開Web は実 API が既定（鍵が無ければ起動しても `/healthz` が 503）。
@@ -316,6 +319,7 @@ S1〜S11・W1〜W5 との整理（矛盾箇所の注記）:
 | AC10 | 認証情報がログ・戻り値・例外に出ない |
 | AC11 | MCP クライアントからモック検索結果を取得できる |
 | AC12 | 実 API で 1 キーワード検索が通る（CLI・手動 1 回。pytest には入れない） |
+| AC14 | 希望量（下限、任意で上限）を指定すると、同じ商品を n 個注文する組み合わせの最安（`cheapest_order`＝確認済み・送料込みの中で注文額が最小）と、逆転し得る候補（`to_check`）とその条件（送料が X円未満なら・商品名の数量の選択肢が X円以下なら・説明欄の数量が正しければ）を返す。送料無料ラインを仮定しない |
 | AC-Q1 | 題名コーパス（tests/corpus/ の title_patterns 232件・unseen1_patterns 71件・unseen2_patterns 40件・unseen3_patterns 40件＝計383件。真値つき）の全件で、高信頼の誤り（WRONG・RISK・EXC）0件、単価不明（low/none）は20%以下。`tests/test_title_corpus.py` で固定。真値が SPEC と矛盾すると判断した題名は真値を変えず xfail にして理由を書く |
 
 ### Phase 1.5 公開Web

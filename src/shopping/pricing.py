@@ -1,13 +1,14 @@
-# @owns 語による絞り込み・基準単位あたりの単価・支払総額・最安判定（比較グループ分け・断定できない理由の明示）
+# @owns 語による絞り込み・基準単位あたりの単価・支払総額・最安判定（比較グループ分け・断定できない理由の明示）・確認済みの判定・希望量を注文する組み合わせ（order_plans・cheapest_order・to_check）
 """価格比較。商品の意味（仕様の違い）は判定しない。読み取った数量（個数×内容量）から、
 指定または自動で決めた基準（basis）あたりの単価を出し、送料不明のときは総額最安を断定しない。"""
 from __future__ import annotations
 
+import math
 from collections import Counter
 from statistics import median
 from dataclasses import dataclass, field
 
-from .inputs import check_desired_quantity
+from .inputs import check_desired_range
 from .models import Offer
 from .quantity import DISPLAY, _norm, base_unit, format_amount, parse_quantity, resolve_basis
 
@@ -70,10 +71,39 @@ def format_unit_price(x: float) -> str:
 
 
 @dataclass
+class OrderPlan:
+    """同じ商品を n 個注文する案（WP14 W2）。異なる商品の混ぜ合わせはしない。"""
+    offer: Offer
+    n: int                            # 注文個数 = ceil(下限 / 1個の量)
+    order_quantity: float             # n × 1個の量（basis の単位）
+    order_total: int                  # n × 価格（送料額が分かる時だけ送料を足す）。送料別・不明は商品代だけ
+    order_unit_price: float           # order_total ÷ order_quantity（表示単位あたりの円）
+    shipping_status: str
+    reasons: list[str] = field(default_factory=list)      # 確認済みでない理由（unconfirmed_reasons。空なら確認済み）
+    count_unit: str | None = None
+
+    @property
+    def confirmed(self) -> bool:
+        return not self.reasons
+
+
+@dataclass
+class ToCheck:
+    """逆転し得る候補（確認済みの最安より注文額が安いが確認済みでない注文案）とその条件。"""
+    plan: OrderPlan
+    conditions: list[dict]            # [{"reason": 理由の語, "text": 条件の文, "threshold": 数値 or None}]
+
+
+@dataclass
 class ComparisonGroup:
     basis: str                        # "ml" "g" "m" "W" "mAh" "Wh" "個"
     dimension: str                    # volume / mass / length / power / charge / energy / count
     offers: list[Offer]               # 単位価格の安い順（算出不能は末尾）
+    count_unit: str | None = None     # 数え語（basis が個の時だけ。本・袋・枚…。WP14 W3）
+    cheapest_unit_price: Offer | None = None
+    order_plans: list[OrderPlan] = field(default_factory=list)
+    cheapest_order: OrderPlan | None = None
+    to_check: list[ToCheck] = field(default_factory=list)
 
 
 @dataclass
@@ -81,13 +111,17 @@ class Comparison:
     basis: str
     basis_label: str
     groups: list[ComparisonGroup]
-    unknown_offers: list[Offer]       # basis の量が読めない候補（単位価格なし）
+    unknown_offers: list[Offer]       # basis の量が読めない候補（単価なし）
     cheapest_price: Offer | None
     cheapest_unit_price: Offer | None
     cheapest_total: Offer | None
     cheapest_for_quantity: Offer | None
     caveats: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # WP14 W2: 希望量を注文する組み合わせ（グループが1つの時だけ最上位に出る。複数ある時は groups[] の中）
+    order_plans: list[OrderPlan] = field(default_factory=list)
+    cheapest_order: OrderPlan | None = None
+    to_check: list[ToCheck] = field(default_factory=list)
 
 
 def total_price(offer: Offer) -> int | None:
@@ -212,9 +246,133 @@ def mark_unit_price_outliers(members: list[Offer]) -> list[Offer]:
     return flagged
 
 
+# ---- 希望量を注文する組み合わせ（WP14 W2。SPEC §8） ----
+
+MAX_ORDER_COUNT = 1000          # 注文個数の上限（これを超える案は現実的でないので外す。希望量÷1個の量が極端に大きい時）
+TO_CHECK_MAX = 20               # to_check に出す件数の上限（超えた分は件数だけ caveats）
+SHIPPING_LINE_CAVEAT = ("送料無料ライン（3,980円など）は仮定していません。送料別・送料不明の候補は、注文額がそのラインを超えても"
+                        "送料込みにしていません（ラインを超えても送料がかかる商品がある: 楽天公式 FAQ "
+                        "https://ichiba.faq.rakuten.net/detail/000013788 ）。送料額・発送目安は API に無いので商品ページで確認してください。")
+CAPTION_NOTE = "題名から数量が読めず、説明欄の見出し付きの記述から補完した数量。確認済みではない"
+
+
+def _qty_label(o: Offer) -> str:
+    q = o.quantity
+    if q is None or q.count_total is None:
+        return ""
+    text = f"{format_amount(q.count_total)}{q.count_unit}"
+    if q.content_amount is not None:
+        text += f"×{format_amount(q.content_amount)}{q.content_unit}"
+    return text
+
+
+def _order_plan(o: Offer, amount: float, mult: float, desired: float, desired_max: float | None,
+                count_unit: str | None) -> tuple[OrderPlan | None, str | None]:
+    """候補 o を同じ商品で n 個注文する案。(案, 除外理由 "range" / "too_many" / None)。比は丸めてから切り上げる
+    （0.9 ÷ 0.3 = 3.0000000000000004 で n を 4 にしない）。"""
+    n = max(1, math.ceil(round(desired / amount, 9)))
+    if n > MAX_ORDER_COUNT:
+        return None, "too_many"
+    quantity = round(n * amount, 9)
+    if desired_max is not None and quantity > round(desired_max, 9):
+        return None, "range"
+    total = n * o.price
+    if o.shipping_status == "separate" and o.shipping_fee is not None:
+        total += o.shipping_fee                     # 送料額が分かる時だけ（楽天の検索 API では常に不明）。1 注文に 1 回
+    return OrderPlan(offer=o, n=n, order_quantity=quantity, order_total=total,
+                     order_unit_price=total * mult / quantity, shipping_status=o.shipping_status,
+                     reasons=unconfirmed_reasons(o, shipping=True), count_unit=count_unit), None
+
+
+def _conditions(plan: OrderPlan, best: OrderPlan | None) -> list[dict]:
+    """確認済みでない理由ごとの「こうなら逆転する」条件。best は確認済みの最安の注文案（無ければ None）。"""
+    o, q = plan.offer, plan.offer.quantity
+    conds: list[dict] = []
+    for r in plan.reasons:
+        gap = None if best is None else best.order_total - plan.order_total      # 確認済みの最安との差額（正のとき余地がある）
+        if r in ("shipping_separate", "shipping_unknown"):
+            kind = "送料別" if r == "shipping_separate" else "送料不明"
+            if gap is not None and gap > 0:
+                conds.append({"reason": r, "threshold": gap, "text":
+                              f"{kind}。注文全体の送料が {gap:,}円未満ならこちらが安い（{plan.n}個で商品代 {plan.order_total:,}円。"
+                              "送料額は API に無いので商品ページで確認）"})
+            else:
+                conds.append({"reason": r, "threshold": None, "text":
+                              f"{kind}。送料が確定すれば確認済みになる（送料額は API に無いので商品ページで確認）"})
+        elif r == "price_varies":
+            label = _qty_label(o)
+            if best is not None and gap is not None and gap > 0:
+                x = (best.order_total - 1) // plan.n                  # n × 価格 < best を満たす最大の整数価格
+                conds.append({"reason": r, "threshold": x, "text":
+                              f"商品名の数量（{label}）の選択肢の価格が {x:,}円以下ならこちらが安い"
+                              f"（価格幅 {o.price_min:,}〜{o.price_max:,}円。表示価格 {o.price:,}円は最小の選択肢の価格）"})
+            else:
+                conds.append({"reason": r, "threshold": None, "text":
+                              f"商品名の数量（{label}）の選択肢の価格が確認できれば確認済みになる"
+                              f"（価格幅 {o.price_min:,}〜{o.price_max:,}円）"})
+        elif r == "quantity_from_caption":
+            ev = getattr(q, "caption_evidence", None) or ""
+            conds.append({"reason": r, "threshold": None, "text":
+                          f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）"})
+        elif r == "unit_price_outlier":
+            conds.append({"reason": r, "threshold": None, "text": OUTLIER_NOTE})
+    return conds
+
+
+def build_order_section(members: list[Offer], amounts: dict[int, float], mult: float, desired: float,
+                        desired_max: float | None, count_unit: str | None = None):
+    """members（単位の量が読めた候補）から注文案・確認済みの最安・逆転し得る候補を作る。
+    (plans, cheapest_order, to_check, 範囲外の件数, 個数超過の件数) を返す。"""
+    plans: list[OrderPlan] = []
+    out_of_range = too_many = 0
+    for o in members:
+        if o.price is None:
+            continue
+        plan, skipped = _order_plan(o, amounts[id(o)], mult, desired, desired_max, count_unit)
+        if plan is not None:
+            plans.append(plan)
+        elif skipped == "range":
+            out_of_range += 1
+        else:
+            too_many += 1
+    plans.sort(key=lambda p: (p.order_total, p.order_unit_price, p.offer.mall_item_code))
+    best = next((p for p in plans if p.confirmed), None)
+    to_check = [ToCheck(p, _conditions(p, best)) for p in plans
+                if not p.confirmed and (best is None or p.order_total < best.order_total)]
+    return plans, best, to_check, out_of_range, too_many
+
+
+def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, n_to_check: int, name: str,
+                   desired: float, desired_max: float | None, out_of_range: int, too_many: int) -> list[str]:
+    """希望量を指定した時のグループ（または全体）の caveats。"""
+    out: list[str] = []
+    rng = f"{format_amount(desired)}{name} 以上" + (f"・{format_amount(desired_max)}{name} 以下" if desired_max is not None else "")
+    if not plans:
+        out.append(f"必要数量 {rng}を満たす注文の組み合わせがない")
+    elif best is None:
+        parts = Counter(r for p in plans for r in p.reasons)
+        label = {"shipping_separate": "送料別", "shipping_unknown": "送料不明", "price_varies": "選択肢で価格が変わる",
+                 "unit_price_outlier": "数量の読み違いの疑い", "quantity_from_caption": "説明欄から補完した数量"}
+        detail = "・".join(f"{label[k]} {v}件" for k, v in parts.items() if k in label)
+        out.append(f"確認済み（数量が商品名から読め・価格が選択肢で変わらず・外れ値でなく・送料込み）の注文の候補がない"
+                   f"（足りない条件: {detail}）。to_check に条件付きの候補を安い順に出した")
+    if out_of_range:
+        out.append(f"希望量の上限（{format_amount(desired_max)}{name}）を超える注文になる候補は除いた: {out_of_range}件")
+    if too_many:
+        out.append(f"注文個数が {MAX_ORDER_COUNT} 個を超える候補は除いた: {too_many}件")
+    if n_to_check > TO_CHECK_MAX:
+        out.append(f"逆転し得る候補（to_check）は {n_to_check} 件あり、先頭 {TO_CHECK_MAX} 件だけ返した")
+    return out
+
+
+def _split_groups(members: list[Offer], name: str, dim: str) -> list[ComparisonGroup]:
+    """単位価格の出た候補を比較グループに分ける。いまは basis の次元ごとに 1 つ。"""
+    return [ComparisonGroup(basis=name, dimension=dim, offers=members)] if members else []
+
+
 def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
-            desired_quantity=None, basis: str | None = None) -> Comparison:
-    check_desired_quantity(desired_quantity)       # 検査の実装は inputs に一本化（不正なら InvalidInput＝ValueError）
+            desired_quantity=None, basis: str | None = None, desired_quantity_max=None) -> Comparison:
+    check_desired_range(desired_quantity, desired_quantity_max)   # 検査の実装は inputs に一本化（不正なら InvalidInput＝ValueError）
     fixed = resolve_basis(basis) if basis not in (None, "") else None   # 不正なら ValueError
     caveats: list[str] = []
     notes: list[str] = []
@@ -251,7 +409,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     members.sort(key=lambda o: (o.unit_price is None, o.unit_price or 0.0,
                                 o.price if o.price is not None else 10**12, o.mall_item_code))
     outliers = mark_unit_price_outliers(members)
-    groups = [ComparisonGroup(basis=name, dimension=dim, offers=members)] if members else []
+    groups = _split_groups(members, name, dim)
 
     priced = [o for o in candidates if o.price is not None]
     if len(priced) != len(candidates):
@@ -264,16 +422,12 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if outliers:
         caveats.append(f"単価が他の候補の 1/{OUTLIER_RATIO} 未満で、数量の読み違いの疑いがある候補: "
                        f"{len(outliers)}件（単位価格の最安・必要数量を満たす最安から外しています）")
-
     varies = [o for o in members if o.price_varies]
     if varies:
         caveats.append(f"選択肢によって価格が変わる候補: {len(varies)}件（表示価格が商品名の数量の選択肢の価格とは"
                        "限らないため、単位価格・注文の最安から外した）")
 
     cheapest_price = min(priced, key=lambda o: (o.price, o.mall_item_code)) if priced else None
-    ranked = [o for o in members if o.unit_price is not None and is_confirmed(o)]
-    cheapest_unit = min(ranked, key=lambda o: (o.unit_price, o.price, o.mall_item_code)) \
-        if ranked else None
 
     unknown_ship = [o for o in priced if total_price(o) is None]
     if unknown_ship:
@@ -281,27 +435,39 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         caveats.append(f"送料が不明な候補が {len(unknown_ship)} 件あるため、"
                        "支払総額の最安は断定できない")
     else:
-        cheapest_total = min(priced, key=lambda o: (total_price(o), o.mall_item_code)) \
-            if priced else None
+        cheapest_total = min(priced, key=lambda o: (total_price(o), o.mall_item_code))             if priced else None
 
-    meeting = None
+    # グループごとの最安・注文の組み合わせ（WP14）
+    desired_caveats: list[str] = []
+    for g in groups:
+        ranked = [o for o in g.offers if o.unit_price is not None and is_confirmed(o)]
+        g.cheapest_unit_price = min(ranked, key=lambda o: (o.unit_price, o.price, o.mall_item_code))             if ranked else None
+        if desired_quantity is not None:
+            plans, best, to_check, out_of_range, too_many = build_order_section(
+                g.offers, amounts, mult, desired_quantity, desired_quantity_max, g.count_unit)
+            g.order_plans, g.cheapest_order = plans, best
+            g.to_check = to_check[:TO_CHECK_MAX]
+            desired_caveats += _group_caveats(plans, best, len(to_check), g.count_unit or name, desired_quantity,
+                                              desired_quantity_max, out_of_range, too_many)
     if desired_quantity is not None:
-        ok = [o for o in members if o.price is not None and is_confirmed(o)
-              and amounts[id(o)] >= desired_quantity]
-        if ok:
-            meeting = min(ok, key=lambda o: (o.price, o.unit_price, o.mall_item_code))
-            if total_price(meeting) is None:
-                caveats.append("必要数量を満たす最安は商品価格ベースで、送料は含まない（送料不明）")
-        else:
-            excluded = any(o.unit_price_outlier and amounts[id(o)] >= desired_quantity for o in members)
-            caveats.append(f"必要数量 {format_amount(desired_quantity)}{name} 以上を満たす候補がない"
-                           + ("（数量の読み違いの疑いで外した候補を除く）" if excluded else ""))
+        if not groups:
+            desired_caveats.append(f"必要数量 {format_amount(desired_quantity)}{name} 以上を満たす注文の組み合わせがない")
         if unknown:
-            caveats.append("量を読み取れない候補は必要数量の判定に使っていない")
+            desired_caveats.append("量を読み取れない候補は必要数量の判定に使っていない")
+        if any({"shipping_separate", "shipping_unknown"} & set(p.reasons) for g in groups for p in g.order_plans):
+            desired_caveats.append(SHIPPING_LINE_CAVEAT)
+    caveats.extend(desired_caveats)
+
+    only = groups[0] if len(groups) == 1 else None
+    meeting = only.cheapest_order.offer if only is not None and only.cheapest_order is not None else None
 
     caveats.append(SPEC_CAVEAT)
     caveats.append(QUANTITY_CAVEAT)
     return Comparison(basis=name, basis_label=label, groups=groups, unknown_offers=unknown,
-                      cheapest_price=cheapest_price, cheapest_unit_price=cheapest_unit,
+                      cheapest_price=cheapest_price,
+                      cheapest_unit_price=only.cheapest_unit_price if only else None,
                       cheapest_total=cheapest_total, cheapest_for_quantity=meeting,
-                      caveats=caveats, notes=notes)
+                      caveats=caveats, notes=notes,
+                      order_plans=only.order_plans if only else [],
+                      cheapest_order=only.cheapest_order if only else None,
+                      to_check=only.to_check if only else [])

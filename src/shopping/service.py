@@ -14,9 +14,10 @@ from .adapters.rakuten import RakutenAdapter
 from .config import RakutenCredentials, load_credentials
 from .models import Offer, SearchStats
 from .orchestrator import Limits, search_many
-from .inputs import (DEFAULT_PAGES, MAX_PAGES, InvalidInput, check_basis, check_desired_quantity,
+from .inputs import (DEFAULT_PAGES, MAX_PAGES, InvalidInput, check_basis, check_desired_range,
                      check_term_lengths)
-from .pricing import Comparison, compare, filter_by_terms, round_unit_price, total_price
+from .pricing import (Comparison, OrderPlan, ToCheck, compare, filter_by_terms, round_unit_price,
+                      total_price)
 from .quantity import parse_quantity
 from .regulars import Regular, RegularsError, get_regular
 
@@ -81,7 +82,8 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
             "content_amount": q.content_amount, "content_dimension": q.content_dimension,
             "content_unit": q.content_unit, "measure_total": q.measure_total,
             "confidence": q.confidence, "evidence": q.evidence,
-            "content_amounts": dict(q.content_amounts or {})},
+            "content_amounts": dict(q.content_amounts or {}),
+            "source": q.source, "caption_evidence": q.caption_evidence, "caption_conflict": q.caption_conflict},
         "unit_price": round_unit_price(offer.unit_price),
         "unit_price_label": offer.unit_price_label,
         "unit_price_dimension": offer.unit_price_dimension,
@@ -242,6 +244,25 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
             "offers": [offer_to_dict(o) for o in shown], "notes": notes}
 
 
+def order_plan_to_dict(p: OrderPlan) -> dict:
+    """注文案（同じ商品を n 個）。候補の全項目は出さず、商品を特定する項目と注文の数字だけ（候補一覧は groups[].offers）。"""
+    o, q = p.offer, p.offer.quantity
+    return {
+        "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
+        "url": o.item_url, "url_status": o.item_url_status,
+        "price": o.price, "price_min": o.price_min, "price_max": o.price_max, "price_varies": o.price_varies,
+        "n": p.n, "order_quantity": p.order_quantity, "order_total": p.order_total,
+        "order_unit_price": round_unit_price(p.order_unit_price), "unit_price_label": o.unit_price_label,
+        "shipping_status": p.shipping_status, "count_unit": p.count_unit,
+        "quantity_source": None if q is None else q.source, "caption_evidence": None if q is None else q.caption_evidence,
+        "confirmed": p.confirmed, "unconfirmed_reasons": list(p.reasons),
+    }
+
+
+def to_check_to_dict(t: ToCheck) -> dict:
+    return dict(order_plan_to_dict(t.plan), conditions=[dict(c) for c in t.conditions])
+
+
 def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
                         group_offers_max: int | None = None) -> dict:
     """group_offers_max: groups[].offers と unknown_offers を先頭何件で切るか。None は切らない（MCP・CLI）。
@@ -254,7 +275,11 @@ def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
     return {
         "basis": c.basis,
         "basis_label": c.basis_label,
-        "groups": [{"basis": g.basis, "dimension": g.dimension, "count": len(g.offers),
+        "groups": [{"basis": g.basis, "dimension": g.dimension, "count_unit": g.count_unit, "count": len(g.offers),
+                    "cheapest_unit_price": one(g.cheapest_unit_price),
+                    "order_plans": [order_plan_to_dict(p) for p in g.order_plans],
+                    "cheapest_order": None if g.cheapest_order is None else order_plan_to_dict(g.cheapest_order),
+                    "to_check": [to_check_to_dict(t) for t in g.to_check],
                     "offers": [offer_to_dict(o, known_urls) for o in cut(g.offers)]}
                    for g in c.groups],
         "unknown_offers": [offer_to_dict(o, known_urls) for o in cut(c.unknown_offers)],
@@ -263,6 +288,9 @@ def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
         "cheapest_unit_price": one(c.cheapest_unit_price),
         "cheapest_total": one(c.cheapest_total),
         "cheapest_for_quantity": one(c.cheapest_for_quantity),
+        "order_plans": [order_plan_to_dict(p) for p in c.order_plans],
+        "cheapest_order": None if c.cheapest_order is None else order_plan_to_dict(c.cheapest_order),
+        "to_check": [to_check_to_dict(t) for t in c.to_check],
         "caveats": list(c.caveats),
         "notes": list(c.notes),
     }
@@ -280,7 +308,8 @@ def _terms_arg(value, name: str) -> list[str] | None | dict:
 
 def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basis, *, adapter,
                   pages, start_page, hits, limits, sleep, filters, known_urls=None,
-                  group_offers_max: int | None = None, paging_notes: bool = True) -> dict:
+                  group_offers_max: int | None = None, paging_notes: bool = True,
+                  desired_quantity_max=None) -> dict:
     inc = _terms_arg(include_terms, "include_terms")
     exc = _terms_arg(exclude_terms, "exclude_terms")
     for v in (inc, exc):
@@ -290,7 +319,7 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
         basis = None
     try:                                         # 検査の実装は inputs に一本化（公開面の Gate と同じ）
         check_basis(basis)
-        check_desired_quantity(desired_quantity)
+        check_desired_range(desired_quantity, desired_quantity_max)
     except InvalidInput as exc:
         return _error("invalid_request", str(exc))
     r = _search(keywords, adapter, pages=pages, start_page=start_page, hits=hits, limits=limits,
@@ -300,7 +329,8 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
     offers, stats, mock = r
     _annotate(offers)
     comparison = compare(offers, include_terms=inc, exclude_terms=exc,
-                         desired_quantity=desired_quantity, basis=basis)
+                         desired_quantity=desired_quantity, basis=basis,
+                         desired_quantity_max=desired_quantity_max)
     conflict = _shipping_conflict_note(offers)
     if conflict:
         comparison.caveats.append(conflict)
@@ -308,7 +338,7 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
                          paging_notes=paging_notes) + comparison.notes
     return {"ok": True, "source": SOURCE, "mock": mock, "keywords": _validate_keywords(keywords),
             "include_terms": inc, "exclude_terms": exc, "desired_quantity": desired_quantity,
-            "basis": comparison.basis, "stats": _stats_to_dict(stats),
+            "desired_quantity_max": desired_quantity_max, "basis": comparison.basis, "stats": _stats_to_dict(stats),
             "comparison": _comparison_to_dict(comparison, known_urls, group_offers_max),
             "notes": notes}
 
@@ -319,12 +349,12 @@ def compare_offers(keywords, include_terms=None, exclude_terms=None, desired_qua
                    sort: str = "standard", pages: int | None = DEFAULT_PAGES, start_page: int = 1,
                    hits: int = 30, adapter: MarketplaceAdapter | None = None, sleep=None,
                    limits: Limits | None = None, group_offers_max: int | None = None,
-                   paging_notes: bool = True) -> dict:
+                   paging_notes: bool = True, desired_quantity_max: float | None = None) -> dict:
     filters = dict(ng_keyword=ng_keyword, min_price=min_price, max_price=max_price, sort=sort)
     return _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basis,
                          adapter=adapter, pages=pages, start_page=start_page, hits=hits, limits=limits,
                          sleep=sleep, filters=filters, group_offers_max=group_offers_max,
-                         paging_notes=paging_notes)
+                         paging_notes=paging_notes, desired_quantity_max=desired_quantity_max)
 
 
 def _regular_info(r: Regular) -> dict:

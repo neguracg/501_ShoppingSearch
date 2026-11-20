@@ -164,7 +164,7 @@ def check_page_range(start_page, pages) -> tuple[int, int]:
 
 def validate(*, keywords, ng_keyword=None, min_price=None, max_price=None, sort="standard",
              include_terms=None, exclude_terms=None, basis=None, desired_quantity=None,
-             pages=None, start_page=None) -> None:
+             desired_quantity_max=None, pages=None, start_page=None) -> None:
     """不正なら InvalidInput。正規化後の値は返さない（service が自分で正規化する）。"""
     kws = _terms(keywords, "検索語", allow_empty=False)
     check_term_lengths(kws, "検索語")
@@ -185,7 +185,7 @@ def validate(*, keywords, ng_keyword=None, min_price=None, max_price=None, sort=
     if sort not in SORTS:
         raise InvalidInput("sort は " + " / ".join(sorted(SORTS)) + " のいずれかで指定してください。")
     check_basis(basis)
-    check_desired_quantity(desired_quantity)
+    check_desired_range(desired_quantity, desired_quantity_max)
 
 
 def check_basis(basis) -> None:
@@ -206,3 +206,19 @@ def check_desired_quantity(value) -> None:
     if (isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or not 0 < value <= MAX_QUANTITY):
         raise InvalidInput("必要な量は正の数（比べる単位あたり）で指定してください。")
+
+
+def check_desired_range(lower, upper=None) -> None:
+    """希望量の範囲の検査（WP14 W2）。lower は下限（desired_quantity）、upper は上限（desired_quantity_max・任意）。
+    どちらも check_desired_quantity と同じ（正の有限数）。上限だけの指定と、上限 < 下限は不正。service・pricing・公開面が呼ぶ。"""
+    check_desired_quantity(lower)
+    if upper is None:
+        return
+    if lower is None:
+        raise InvalidInput("希望量の上限 desired_quantity_max だけでは指定できません。下限 desired_quantity も指定してください。")
+    try:
+        check_desired_quantity(upper)
+    except InvalidInput:
+        raise InvalidInput("希望量の上限 desired_quantity_max は正の数（比べる単位あたり）で指定してください。") from None
+    if upper < lower:
+        raise InvalidInput("希望量の上限 desired_quantity_max は下限 desired_quantity 以上にしてください。")

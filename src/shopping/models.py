@@ -19,6 +19,10 @@ class QuantityInfo:
     # 名前に書かれた次元ごとの 1個あたり内容量（基準単位。S5: 比べる単位を明示した時に使う）。
     # content_dimension / content_amount は、この中で最初に書かれた次元（自動判定用）
     content_amounts: dict = field(default_factory=dict)
+    # 数量の出どころ（WP14 W4）。"title"=商品名（quantity.py の読み取り）、"caption"=題名から読めず説明欄の見出し付きの記述から補完
+    source: str = "title"
+    caption_evidence: str | None = None      # source=="caption"、または題名と説明欄が食い違う時（caption_conflict）の、説明欄の見出しから値までの原文
+    caption_conflict: bool = False           # 題名が high で、説明欄の見出し付きの数量と食い違う（confidence は変えない）
 
     def __post_init__(self) -> None:
         if (self.measure_total is None and self.count_total is not None

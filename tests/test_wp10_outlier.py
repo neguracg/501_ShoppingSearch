@@ -110,11 +110,13 @@ def test_outlier_stays_in_the_group_list_with_its_flag_and_original_order():
     assert got[0].unit_price_outlier is True and all(not o.unit_price_outlier for o in got[1:])
 
 
-def test_when_only_the_outlier_meets_the_wanted_quantity_the_slot_is_empty_and_says_why():
+def test_outlier_is_never_the_cheapest_order_but_is_listed_in_to_check():
+    # WP14 W2（Q10 の変更）: 同じ商品を n 個買う案になったので、「外れ値だけが満たす」形は無い。外れ値は最安に選ばず to_check に条件つきで出す
     offers = _group_with_outlier()
-    r = compare(offers, desired_quantity=5000)            # 満たすのは 10000ml の d だけ（外れ値）
-    assert r.cheapest_for_quantity is None
-    assert any("必要数量" in c and "読み違いの疑いで外した候補を除く" in c for c in r.caveats)
+    r = compare(offers, desired_quantity=5000)
+    assert r.cheapest_for_quantity.mall_item_code == "a" and r.cheapest_order.offer.mall_item_code == "a"
+    checks = [t for t in r.to_check if t.plan.offer.mall_item_code == "d"]
+    assert checks and checks[0].conditions[0]["reason"] == "unit_price_outlier"
 
 
 def test_flag_is_reset_on_every_compare():

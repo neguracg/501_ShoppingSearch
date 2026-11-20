@@ -218,15 +218,18 @@ def test_desired_quantity_is_in_basis_unit():
     assert r.cheapest_for_quantity.mall_item_code == "w3"       # 12000 以上で価格最小（900）
     r = compare(WATER, basis="L", desired_quantity=12000)       # 別名でも基準単位(ml)で解釈
     assert r.cheapest_for_quantity.mall_item_code == "w3"
+    # WP14 W2（SPEC §8 Q10 の変更）: 同じ商品を n 個買って足りる。上限を付ければ範囲に収まる注文が無いことがある
     r = compare(WATER, desired_quantity=99999)
+    assert r.cheapest_for_quantity is not None and r.cheapest_order.n >= 2
+    r = compare(WATER, desired_quantity=99999, desired_quantity_max=100000)   # どの商品の n 個も 108,000ml になる
     assert r.cheapest_for_quantity is None and any("必要数量" in c for c in r.caveats)
 
 
 def test_desired_quantity_picks_lowest_price_and_piece_basis():
     r = compare(BATTERY, desired_quantity=20)
     assert r.cheapest_for_quantity.mall_item_code == "b2"       # 20本以上で最も安い
-    r = compare(BATTERY, desired_quantity=1000)
-    assert r.cheapest_for_quantity is None
+    r = compare(BATTERY, desired_quantity=1000)                  # WP14 W2: 100本を 10 個（45,000円）が最安
+    assert r.cheapest_for_quantity.mall_item_code == "b3" and r.cheapest_order.n == 10
 
 
 def test_desired_quantity_ignores_unreadable_and_says_so():

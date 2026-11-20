@@ -159,14 +159,16 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
                        basis: str | None = None, ng_keyword: str | None = None,
                        min_price: int | None = None, max_price: int | None = None,
                        sort: str = "standard", pages: int = DEFAULT_PAGES,
-                       start_page: int = 1) -> dict[str, Any]:
+                       start_page: int = 1, desired_quantity_max: float | None = None) -> dict[str, Any]:
         return invoke(service.compare_offers, keywords, include_terms, exclude_terms,
-                      desired_quantity, basis, ng_keyword=ng_keyword, min_price=min_price,
+                      desired_quantity, basis, desired_quantity_max=desired_quantity_max,
+                      ng_keyword=ng_keyword, min_price=min_price,
                       max_price=max_price, sort=sort, pages=pages, start_page=start_page,
                       check=dict(keywords=keywords, ng_keyword=ng_keyword, min_price=min_price,
                                  max_price=max_price, sort=sort, include_terms=include_terms,
                                  exclude_terms=exclude_terms, basis=basis,
-                                 desired_quantity=desired_quantity, pages=pages,
+                                 desired_quantity=desired_quantity,
+                                 desired_quantity_max=desired_quantity_max, pages=pages,
                                  start_page=start_page))
 
     if public:

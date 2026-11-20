@@ -60,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("compare", help="同じ仕様どうしで比較して最安を出す")
     _add_search_args(c)
     c.add_argument("--basis", help="比べる単位: 個 / ml / g / m / W / mAh / Wh（L・kg 等の別名も可）。省略で自動")
-    c.add_argument("--desired-quantity", type=float, help="必要な量（basis の単位）")
+    c.add_argument("--desired-quantity", type=float, help="必要な量の下限（basis の単位）。同じ商品を n 個注文する組み合わせで比べる")
+    c.add_argument("--desired-quantity-max", type=float, dest="desired_quantity_max",
+                   help="必要な量の上限（任意。--desired-quantity とあわせて指定。注文量がこれを超える組み合わせは除く）")
     r = sub.add_parser("regular", help="定番品マスタの id で今の最安を調べる")
     r.add_argument("regular_id")
     r.add_argument("--regulars", help="定番品マスタのパス（既定 data/regulars.json）")
@@ -127,13 +129,31 @@ def render_search(r: dict) -> None:
     _print_notes(r)
 
 
+def _plan_line(p: dict) -> str:
+    mark = "確認済み" if p["confirmed"] else "未確認"
+    return (f"{p['n']}個 = {format_amount(p['order_quantity'])} / 注文額 {_yen(p['order_total'])}"
+            f"（単価 {format_unit_price(p['order_unit_price'])}円）/ {_ship(p)} / {mark} | {p['shop_name'] or '店舗不明'}\n"
+            f"        {p['name']}\n        {p['url']}")
+
+
+def _print_orders(sec: dict, indent: str = "") -> None:
+    """order_plans / cheapest_order / to_check（最上位、または groups[] の中）の表示。"""
+    co = sec.get("cheapest_order")
+    print(f"{indent}★ 注文の最安（確認済み）: " + ("（該当なし）" if co is None else _plan_line(co)))
+    for t in sec.get("to_check") or []:
+        print(f"{indent}  ? 逆転し得る: {_plan_line(t)}")
+        for cond in t["conditions"]:
+            print(f"{indent}      条件: {cond['text']}")
+
+
 def render_compare(r: dict) -> None:
     _print_stats(r["stats"])
     c = r["comparison"]
     print()
     print(f"比べる単位: {c['basis_label']}（{c['basis']}）")
     for g in c["groups"]:
-        print(f"■ {g['basis']} で比較できる候補（{g['count']} 件・単位価格の安い順）")
+        cu = f"［{g['count_unit']}］" if g.get("count_unit") else ""
+        print(f"■ {g['basis']}{cu} で比較できる候補（{g['count']} 件・単位価格の安い順）")
         for i, o in enumerate(g["offers"], 1):
             print(f"  [{i}] {_offer_line(o)}")
     if c["unknown_count"]:
@@ -146,6 +166,17 @@ def render_compare(r: dict) -> None:
     for key, label in labels:
         o = c[key]
         print(f"★ {label}: " + ("（断定できない／該当なし）" if o is None else _offer_line(o)))
+    if r.get("desired_quantity") is not None:
+        print()
+        rng = f"{format_amount(r['desired_quantity'])}" + (
+            f"〜{format_amount(r['desired_quantity_max'])}" if r.get("desired_quantity_max") is not None else " 以上")
+        print(f"希望量 {rng}（{c['basis']}）を同じ商品の n 個注文で満たす組み合わせ:")
+        if len(c["groups"]) > 1:
+            for g in c["groups"]:
+                print(f"  [{g.get('count_unit') or g['basis']}]")
+                _print_orders(g, "    ")
+        else:
+            _print_orders(c, "  ")
     if c["caveats"]:
         print()
         print("断定できない理由・注意:")
@@ -169,7 +200,7 @@ def run(argv: list[str] | None = None) -> int:
     elif args.command == "compare":
         result = service.compare_offers(
             args.keywords, args.include, args.exclude, args.desired_quantity, args.basis,
-            ng_keyword=args.ng_keyword, min_price=args.min_price, max_price=args.max_price,
+            desired_quantity_max=args.desired_quantity_max, ng_keyword=args.ng_keyword, min_price=args.min_price, max_price=args.max_price,
             sort=args.sort, pages=args.pages, start_page=args.start_page, adapter=adapter)
         render = render_compare
     else:
