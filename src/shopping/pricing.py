@@ -694,9 +694,13 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if len(groups) > 1:
         caveats.append(COUNT_GROUP_CAVEAT.format(
             main=only.count_unit, others="・".join(f"{g.count_unit} {len(g.offers)}件" for g in groups if g is not only)))
-        if desired_quantity is not None:
+    if only is not None and dim == "count" and not counter and desired_quantity is not None:
+        # 希望量が basis なし（または個）で主グループの数え方として扱われる時の注意（WP14 B2）。『30袋』が黙って 30本 にならないよう、
+        # 数え語のグループが複数、または packs に別の数え語（袋）がある時は必ず出し、packs の数え語も勧める（WP15 段B）
+        others = [g.count_unit for g in groups if g is not only and g.count_unit != "個"]      # basis の「個」は全数え語の意味なので勧めない
+        others += [u for u in counter_basis.other_counters(candidates, only.count_unit) if u not in others]
+        if len(groups) > 1 or others:
             rng = format_amount(desired_quantity) + (f"〜{format_amount(desired_quantity_max)}" if desired_quantity_max is not None else "")
-            others = [g.count_unit for g in groups if g is not only and g.count_unit != "個"]      # basis の「個」は全数え語の意味なので勧めない
             hint = f"{others[0]}で数えるなら basis={others[0]} を指定してください" if others else "別の数え方なら basis に数え語を指定してください"
             caveats.append(f"希望量 {rng} は主グループの数え方［{only.count_unit}］として扱いました（他のグループにも同じ数を当てた結果は groups[] の中）。{hint}")
     cross_unit: list[counter_basis.Assumption] = []

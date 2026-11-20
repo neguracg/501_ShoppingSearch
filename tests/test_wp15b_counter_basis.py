@@ -250,3 +250,16 @@ def test_a_readable_count_in_the_content_unit_that_does_not_divide_is_still_conv
 def test_without_a_unique_base_the_one_to_one_assumption_stays():
     r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), off("p18", P18, 179)], basis="袋", desired_quantity=30)
     assert by(r, "p18").conditions[0]["text"].startswith("この商品の1本が1袋なら")
+
+
+def test_desired_without_a_basis_says_it_was_counted_in_the_main_count_word_even_with_one_group():
+    """basis を付けずに『30袋』と頼まれても、30 が黙って 30本 にならない（依頼の『引数指定をせずに済む』）。packs に袋があれば basis=袋 を勧める。"""
+    r = compare([off("p18", P18, 179), off("f36", "丸実富士屋商店 文化たきつけ 18本入り ×2個セット", 580), off("cololo", COLOLO, 880)],
+                desired_quantity=30)
+    assert [g.count_unit for g in r.groups] == ["本"] and r.main_count_unit == "本"      # グループは 1 つ（cololo も count_unit は 本）
+    c = next(c for c in r.caveats if "主グループの数え方" in c)
+    assert "希望量 30 は主グループの数え方［本］として扱いました" in c and "袋で数えるなら basis=袋 を指定してください" in c
+    # 袋で頼めば出ない（basis=袋 を指定した）
+    assert not any("主グループの数え方" in c for c in compare([off("cololo", COLOLO, 880)], basis="袋", desired_quantity=30).caveats)
+    # 希望量が無ければ出さない・数え語が1種類だけで packs も無ければ出さない
+    assert not any("主グループの数え方" in c for c in compare([off("p18", P18, 179)], desired_quantity=30).caveats)

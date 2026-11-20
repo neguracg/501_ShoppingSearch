@@ -198,7 +198,11 @@ def test_main_group_is_first_in_groups_even_when_not_the_largest():
 def test_desired_with_several_groups_says_which_counting_was_used():
     r = compare(takitsuke(), basis="個", desired_quantity=30)
     c = next(c for c in r.caveats if "主グループの数え方" in c)
-    assert "希望量 30 は主グループの数え方［本］として扱いました" in c and "別の数え方なら basis に数え語を指定" in c
+    # takitsuke() には 18本入 2袋セット（packs に 袋）があるので、袋を具体的に勧める（WP15 段B）
+    assert "希望量 30 は主グループの数え方［本］として扱いました" in c and "袋で数えるなら basis=袋 を指定してください" in c
+    no_packs = [off("p18", T18, 179), off("q18", T18, 180), off("r18", T18, 181), off("n10", T10, 3200), off("n60", T60, 12800)]
+    c = next(c for c in compare(no_packs, basis="個", desired_quantity=30).caveats if "主グループの数え方" in c)
+    assert "別の数え方なら basis に数え語を指定" in c
     r = compare(takitsuke(), basis="個", desired_quantity=30, desired_quantity_max=60)
     assert any("希望量 30〜60 は主グループの数え方［本］" in c for c in r.caveats)
     two = takitsuke() + [off("b1", "着火剤 5袋セット", 500)]

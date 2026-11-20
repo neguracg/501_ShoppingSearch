@@ -24,3 +24,12 @@ def test_compare_offers_description_is_not_grown_for_stage_b():
     d = asyncio.run(asyncio.wait_for(go(), timeout=30))["compare_offers"].description
     assert len(d) <= 2000 and mcp_server._ORDER_POINTER in d
     assert not any(p in d for p in ("counter_assumed", "pack_content_differs", "title+caption"))
+
+
+def test_compare_offers_description_tells_to_pass_the_count_word_as_basis():
+    async def go():
+        async with Client(build_server()) as c:
+            return {t.name: t for t in (await c.list_tools()).tools}
+    d = asyncio.run(asyncio.wait_for(go(), timeout=30))["compare_offers"].description
+    assert "『30袋』『50枚』のように数え語で量を言ったら、basis にその数え語・desired_quantity にその数を入れる（本数などに換算しない）" in d
+    assert len(d) <= 2000 and "『一番安いのはどれ？』" in INSTRUCTIONS

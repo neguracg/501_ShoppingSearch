@@ -80,6 +80,20 @@ def base_count(pack_offers: list[Offer], counter: str, base: tuple[int, str]) ->
     return sum(1 for o in pack_offers if content_key(pack_of(o, counter)) == base)
 
 
+def other_counters(offers: list[Offer], main_unit: str | None) -> list[str]:
+    """候補の数え語（count_unit と packs の包装語）のうち、主グループの数え語（main_unit）と「個」以外を、候補の多い順に。
+    basis が個の時の caveat が『袋で数えるなら basis=袋』と具体的に勧めるための材料（packs の袋は count_unit が本の候補の中にある）。"""
+    seen: dict[str, int] = {}
+    for o in offers:
+        q = o.quantity
+        if q is None or q.confidence != "high":
+            continue
+        for u in {q.count_unit, *(p.get("unit") for p in (q.packs or []))}:
+            if u and u not in (main_unit, "個"):
+                seen[u] = seen.get(u, 0) + 1
+    return sorted(seen, key=lambda u: (-seen[u], u))
+
+
 def differs_text(o: Offer, counter: str, base: tuple[int, str], n_base: int) -> str:
     """食い違う 1袋の中身の前置き（to_check の条件文）。基準とその件数も書く（基準は多数決で、利用者の欲しい中身とは限らない）。"""
     return (f"1{counter}の中身が違う（{content_text(content_key(pack_of(o, counter)))}）。"
