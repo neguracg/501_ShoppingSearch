@@ -6,8 +6,10 @@ WP11-2 の「説明文の全文を 2 つ目の読み取り元にする」案（�
   - ここ    … 見出しの直後の値（入数・入り数・内容量・数量・容量）だけを、題名が none の時だけ補う。題名 high は変えない
               （食い違えば caption_conflict の印と根拠を付けるだけ）。low の題名（題名の中に食い違う数がある）には補わない。
 採らない所は語のリストではなく位置・区切りで決める: 「関連キーワード」「本商品の説明ではありません」以降、「はこちら」を含む
-記述、見出しの無い文中の数（本品を1～2本・まめカイロ7枚・15点以上）。補った数量は source="caption"・caption_evidence を持ち、
-確認済みではない（pricing.unconfirmed_reasons が quantity_from_caption として最安から外す）。
+記述、見出しの無い文中の数（本品を1～2本・まめカイロ7枚・15点以上）。
+出荷形は印と根拠だけ（CAPTION_FILL_UNIT_PRICE=False）: 数量は none のまま、quantity.caption_candidate・caption_evidence に候補と根拠を返す。
+True にすると補った数量（source="caption"）として単位価格を出し、確認済みではない（pricing.unconfirmed_reasons が
+quantity_from_caption として最安から外す）。
 """
 from __future__ import annotations
 
@@ -21,6 +23,10 @@ from .quantity import _counter_table, _norm, _token_re, _unit_table, parse_quant
 HEADINGS = ("入り数", "入数", "内容量", "数量", "容量")
 # 値に「1個あたり」の言い回し（あたり・当たり・当り・につき・ごと）がある時は、総数ではなく単位あたりの説明なので読まない
 _PER_UNIT = re.compile(r"あたり|当たり|当り|につき|ごと")
+# 出荷形（WP14 W4）: False＝印と根拠だけ（quantity.caption_candidate・caption_evidence。数量は none のまま・単位価格を出さない）。
+# True＝補完した数量（source="caption"・high）として単位価格を出し、グループに並べる（確認済みではない・最安に選ばない）。
+# 指示書の基準（補完の誤りが 10% 超なら印だけに縮める）に実測が当たったので False（SPEC §7 W4 の実測）。
+CAPTION_FILL_UNIT_PRICE = False
 VALUE_MAX = 40                                     # 値として読む最大文字数（見出しの直後から）
 
 # 説明欄のここから後ろは本商品の記述ではない（検索用キーワード列・断り書き）。位置で切る
@@ -120,7 +126,12 @@ def read_offer_quantity(offer: Offer) -> QuantityInfo:
     if q.confidence == "none":
         if offer.price_varies:
             return q       # 選択肢で価格が変わる商品の説明欄は選択肢の1つの記述でしかない（実測: 補完の誤りはすべてこの形）
-        return replace(cap.info, source="caption", caption_evidence=cap.evidence)
+        if CAPTION_FILL_UNIT_PRICE:
+            return replace(cap.info, source="caption", caption_evidence=cap.evidence)
+        q.caption_evidence = cap.evidence
+        q.caption_candidate = {"count_total": cap.info.count_total, "count_unit": cap.info.count_unit,
+                               "content_amount": cap.info.content_amount, "content_dimension": cap.info.content_dimension}
+        return q
     if q.confidence == "high" and _conflicts(q, cap.info):
         q.caption_conflict = True
         q.caption_evidence = cap.evidence

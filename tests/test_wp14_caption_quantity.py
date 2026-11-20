@@ -5,7 +5,7 @@ import pytest
 
 import cli
 from fakes import make_offer
-from shopping import service
+from shopping import caption_quantity, service
 from shopping.caption_quantity import read_caption, read_offer_quantity
 from shopping.pricing import compare
 from shopping.quantity import parse_quantity
@@ -18,6 +18,12 @@ UNIDY_CAPTION = ("10枚はこちら 30枚はこちら 60枚はこちら 温活�
                  "●入数60枚 15点以上ご購入 関連キーワード(本商品の説明ではありません) カイロ 入数 100枚 内容量 200枚")
 
 
+@pytest.fixture
+def fill(monkeypatch):
+    """補完（単位価格を出す完全形）に切り替える。出荷形は印と根拠だけ（CAPTION_FILL_UNIT_PRICE=False）。"""
+    monkeypatch.setattr(caption_quantity, "CAPTION_FILL_UNIT_PRICE", True)
+
+
 def offer(title, caption, price=500, lo=None, hi=None):
     o = make_offer("x", name=title, price=price, shipping_status="included")
     o.caption, o.price_min, o.price_max = caption, lo, hi
@@ -26,11 +32,18 @@ def offer(title, caption, price=500, lo=None, hi=None):
 
 # --- 補う（題名が none）---------------------------------------------------------------------------
 
-def test_real_cololo_caption_fills_18_hon_with_the_evidence():
+def test_real_cololo_caption_is_a_mark_with_the_evidence_in_the_shipped_form():
+    q = read_offer_quantity(offer(COLOLO_TITLE, COLOLO_CAPTION))
+    assert (q.confidence, q.count_total, q.source) == ("none", None, "title")       # 数量は none のまま（単価を出さない）
+    assert q.caption_evidence == "数量:18本入り"
+    assert q.caption_candidate == {"count_total": 18, "count_unit": "本", "content_amount": None, "content_dimension": None}
+    assert parse_quantity(COLOLO_TITLE).confidence == "none"           # 題名側の出力は変わらない
+
+
+def test_real_cololo_caption_fills_18_hon_with_the_evidence_in_the_fill_form(fill):
     q = read_offer_quantity(offer(COLOLO_TITLE, COLOLO_CAPTION))
     assert (q.confidence, q.count_total, q.count_unit, q.source) == ("high", 18, "本", "caption")
-    assert q.caption_evidence == "数量:18本入り"
-    assert parse_quantity(COLOLO_TITLE).confidence == "none"           # 題名側の出力は変わらない
+    assert q.caption_evidence == "数量:18本入り" and q.caption_candidate is None
 
 
 @pytest.mark.parametrize("caption,count,unit,content", [
@@ -98,12 +111,16 @@ def test_only_none_titles_are_filled_low_is_left_and_high_is_unchanged():
     assert (q.confidence, q.count_total, q.source, q.caption_conflict) == ("high", 18, "title", False)
 
 
-def test_price_varies_candidates_are_not_filled():
+@pytest.mark.parametrize("fill_mode", [False, True])
+def test_price_varies_candidates_are_not_filled_nor_marked(monkeypatch, fill_mode):
     # 実測: 補完の誤りはすべて「価格が選択肢で変わる商品の説明欄」（猫砂 PFC-7L PFC-18L PFC-14L の 7L×6袋 など）
+    monkeypatch.setattr(caption_quantity, "CAPTION_FILL_UNIT_PRICE", fill_mode)
     o = offer("猫砂 PFC-7L PFC-18L PFC-14L", "■内容量7L×6袋■材質", price=3480, lo=3480, hi=5080)
-    assert read_offer_quantity(o).confidence == "none"
+    q = read_offer_quantity(o)
+    assert q.confidence == "none" and q.caption_candidate is None and q.caption_evidence is None
     o2 = offer("猫砂 PFC-7L PFC-18L PFC-14L", "■内容量7L×6袋■材質", price=3480, lo=3480, hi=3480)
-    assert read_offer_quantity(o2).confidence == "high"
+    q2 = read_offer_quantity(o2)
+    assert (q2.confidence == "high") if fill_mode else (q2.confidence == "none" and q2.caption_candidate is not None)
 
 
 def test_title_high_conflict_keeps_confidence_and_marks_the_evidence():
@@ -124,7 +141,7 @@ def test_no_caption_or_non_string_is_a_noop():
 
 # --- 比較への効き方 ------------------------------------------------------------------------------------
 
-def test_caption_filled_candidate_is_listed_with_a_price_but_never_confirmed_cheapest():
+def test_caption_filled_candidate_is_listed_with_a_price_but_never_confirmed_cheapest(fill):
     plain = offer("文化たきつけ 18本入り", None, price=1200)
     plain.mall_item_code = "plain"
     cap = offer(COLOLO_TITLE, COLOLO_CAPTION, price=490)
@@ -150,7 +167,7 @@ def test_conflict_count_caveat_and_service_dict():
     assert "caption_evidence" in d["quantity"]
 
 
-def test_service_annotates_with_the_caption_for_search_and_compare():
+def test_service_annotates_with_the_caption_for_search_and_compare(fill):
     class Ad:
         mall = "rakuten"
         def search(self, keyword, **kw):
@@ -161,8 +178,23 @@ def test_service_annotates_with_the_caption_for_search_and_compare():
         assert offers[0]["quantity"]["source"] == "caption" and offers[0]["quantity"]["count_total"] == 18
 
 
-def test_cli_marks_caption_quantity():
+def test_cli_marks_caption_quantity_in_both_forms(monkeypatch):
     o = offer(COLOLO_TITLE, COLOLO_CAPTION)
     o.quantity = read_offer_quantity(o)
     text = cli._qty(service.offer_to_dict(o))
+    assert "数量不明" in text and "数量:18本入り" in text and "単価には使っていない" in text
+    monkeypatch.setattr(caption_quantity, "CAPTION_FILL_UNIT_PRICE", True)
+    o.quantity = read_offer_quantity(o)
+    text = cli._qty(service.offer_to_dict(o))
     assert "説明欄の記述から補完" in text and "数量:18本入り" in text
+
+
+def test_shipped_form_never_gives_a_unit_price_or_a_plan_but_says_so_in_caveats():
+    cap = offer(COLOLO_TITLE, COLOLO_CAPTION, price=490)
+    plain = offer("文化たきつけ 18本入り", None, price=1200)
+    r = compare([plain, cap], basis="本", desired_quantity=18)
+    assert {o.mall_item_code for o in r.groups[0].offers} == {"x"} and r.cheapest_order.offer is plain
+    assert cap in r.unknown_offers and cap.unit_price is None and r.to_check == []
+    assert any("説明欄の見出し付きの記述に数量がある候補: 1件" in c for c in r.caveats)
+    d = service.offer_to_dict(cap)
+    assert d["quantity"]["caption_candidate"]["count_total"] == 18 and d["unit_price"] is None

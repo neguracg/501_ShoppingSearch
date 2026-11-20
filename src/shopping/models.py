@@ -23,6 +23,10 @@ class QuantityInfo:
     source: str = "title"
     caption_evidence: str | None = None      # source=="caption"、または題名と説明欄が食い違う時（caption_conflict）の、説明欄の見出しから値までの原文
     caption_conflict: bool = False           # 題名が high で、説明欄の見出し付きの数量と食い違う（confidence は変えない）
+    # 題名が none で、説明欄に見出し付きの数量がある時の候補（WP14 W4 の出荷形＝印と根拠だけ。単位価格・最安・注文案には使わない）。
+    # {"count_total","count_unit","content_amount","content_dimension"}。caption_quantity.CAPTION_FILL_UNIT_PRICE を True にすると
+    # この候補を数量として補完する（source="caption"）形になる
+    caption_candidate: dict | None = None
 
     def __post_init__(self) -> None:
         if (self.measure_total is None and self.count_total is not None

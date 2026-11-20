@@ -83,7 +83,8 @@ def _ship(o: dict) -> str:
 def _qty(o: dict) -> str:
     q = o.get("quantity") or {}
     if q.get("confidence") != "high":
-        return "数量不明" if q.get("confidence") == "none" else "数量要確認"
+        hint = f"（説明欄に「{q['caption_evidence']}」・単価には使っていない）" if q.get("caption_candidate") else ""
+        return ("数量不明" if q.get("confidence") == "none" else "数量要確認") + hint
     text = f"{format_amount(q['count_total'])}{q['count_unit']}"
     if q.get("content_amount") is not None:
         text += (f" × {format_amount(q['content_amount'])}{q['content_unit']}"

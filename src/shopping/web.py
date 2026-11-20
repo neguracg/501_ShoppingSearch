@@ -128,6 +128,12 @@ def create_app(base_path: str | None = None, gate: Gate | None = None) -> FastAP
     app.state.gate = gate
     router = APIRouter()
 
+    def unit_price_cards(c: dict) -> list:
+        """単価が最安の欄。数え語ごとにグループが分かれている時（WP14 W3）は、グループごとに1つずつ出す（数え方の違う候補は比べない）。"""
+        if len(c["groups"]) > 1:
+            return [(f"{c['basis_label']}［{g['count_unit']}］の単価が最安", g["cheapest_unit_price"]) for g in c["groups"]]
+        return [(f"{c['basis_label']}の単価が最安", c["cheapest_unit_price"])]
+
     def run(request: Request, mode: str, q, ng, min_price, max_price, include=None, exclude=None,
             basis=None):
         form = {"q": q or "", "ng": ng or "", "min_price": min_price or "", "max_price": max_price or "",
@@ -179,7 +185,7 @@ def create_app(base_path: str | None = None, gate: Gate | None = None) -> FastAP
             c = result["comparison"]
             ctx.update(caveats=c["caveats"], basis_label=c["basis_label"],
                        cheapest=[("商品価格が最安", c["cheapest_price"]),
-                                 (f"{c['basis_label']}の単価が最安", c["cheapest_unit_price"]),
+                                 *unit_price_cards(c),
                                  ("支払総額が最安（送料が分かる場合のみ）", c["cheapest_total"])],
                        groups=[dict(g, title=group_title(g, c["basis_label"])) for g in c["groups"]],
                        unknown_offers=c["unknown_offers"], unknown_count=c["unknown_count"])

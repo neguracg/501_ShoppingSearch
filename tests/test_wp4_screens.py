@@ -114,5 +114,6 @@ def test_s10_json_unit_price_keeps_significant_digits_and_screens_show_no_expone
     assert "1,000,000mAh" in text and "e+" not in text and "0.0004円" in text
     import cli
     assert "1,000,000mAh" in cli._qty(one) and "e+" not in cli._qty(one)
-    c = compare([make_offer("a", "水 500ml", 100)], desired_quantity=1e6)
-    assert any("必要数量 1,000,000ml 以上" in cv for cv in c.caveats)
+    # WP14 W2: 同じ商品を n 個買う案になったので、「満たす候補がない」文言は上限で範囲に収まらない時に出る（数の整形は同じ）
+    c = compare([make_offer("a", "水 300ml", 100)], desired_quantity=1e6, desired_quantity_max=1e6 + 1)
+    assert any("必要数量 1,000,000ml 以上" in cv and "e+" not in cv for cv in c.caveats)

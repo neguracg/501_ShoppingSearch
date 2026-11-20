@@ -84,9 +84,9 @@ def test_without_upper_bound_a_big_pack_is_a_plan_but_not_cheapest():
     assert r.cheapest_order.offer.mall_item_code == "iris60"
 
 
-def test_too_many_units_are_dropped():
+def test_no_upper_limit_on_the_number_of_units():
     r = compare([off("p", "ペン 1本", 100)], basis="個", desired_quantity=5000)
-    assert r.order_plans == [] and any("1000 個を超える" in c for c in r.caveats)
+    assert r.order_plans[0].n == 5000 and r.cheapest_order.order_total == 500_000
 
 
 # --- 確認済みの最安 --------------------------------------------------------------------------
@@ -129,6 +129,23 @@ def test_to_check_price_varies_threshold_uses_n():
     c = r.to_check[0].conditions[0]
     assert r.order_plans[0].offer.mall_item_code == "unidy60" and r.cheapest_order.offer.mall_item_code == "iris60"
     assert c["threshold"] == (3440 - 1) // 2 == 1719               # 2p < 3440 を満たす最大の整数
+
+
+def test_conditions_say_the_threshold_assumes_the_other_checks_pass():
+    offers = [off("iris60", IRIS60, 1720), off("both", UNIDY60, 1300, ship="separate", lo=1300, hi=1720)]
+    r = compare(offers, basis="個", desired_quantity=50)
+    conds = r.to_check[0].conditions
+    assert {c["reason"] for c in conds} == {"shipping_separate", "price_varies"}
+    assert all("ほかの確認事項も満たす場合" in c["text"] for c in conds)
+
+
+def test_to_check_has_no_count_limit_and_group_caveats_name_the_count_unit():
+    many = [off(f"s{i}", "カイロ 貼る 60枚", 1000 + i, ship="separate") for i in range(25)] + [off("c", IRIS60, 2500)]
+    r = compare(many, basis="個", desired_quantity=50)
+    assert len(r.to_check) == 25
+    two = [off("a", "カイロ 60枚", 1500, ship="separate"), off("b", "文化たきつけ 18本入り", 300, ship="separate")]
+    r = compare(two, basis="個", desired_quantity=18)
+    assert any(c.startswith("［本］確認済み") for c in r.caveats) and any(c.startswith("［枚］確認済み") for c in r.caveats)
 
 
 def test_unconfirmed_not_cheaper_than_the_best_is_not_listed():

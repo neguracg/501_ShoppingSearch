@@ -249,8 +249,6 @@ def mark_unit_price_outliers(members: list[Offer]) -> list[Offer]:
 
 # ---- 希望量を注文する組み合わせ（WP14 W2。SPEC §8） ----
 
-MAX_ORDER_COUNT = 1000          # 注文個数の上限（これを超える案は現実的でないので外す。希望量÷1個の量が極端に大きい時）
-TO_CHECK_MAX = 20               # to_check に出す件数の上限（超えた分は件数だけ caveats）
 SHIPPING_LINE_CAVEAT = ("送料無料ライン（3,980円など）は仮定していません。送料別・送料不明の候補は、注文額がそのラインを超えても"
                         "送料込みにしていません（ラインを超えても送料がかかる商品がある: 楽天公式 FAQ "
                         "https://ichiba.faq.rakuten.net/detail/000013788 ）。送料額・発送目安は API に無いので商品ページで確認してください。")
@@ -266,11 +264,9 @@ def _qty_label(o: Offer) -> str:
 
 def _order_plan(o: Offer, amount: float, mult: float, desired: float, desired_max: float | None,
                 count_unit: str | None) -> tuple[OrderPlan | None, str | None]:
-    """候補 o を同じ商品で n 個注文する案。(案, 除外理由 "range" / "too_many" / None)。比は丸めてから切り上げる
-    （0.9 ÷ 0.3 = 3.0000000000000004 で n を 4 にしない）。"""
+    """候補 o を同じ商品で n 個注文する案。(案, 除外理由 "range" / None)。比は丸めてから切り上げる
+    （0.9 ÷ 0.3 = 3.0000000000000004 で n を 4 にしない）。注文個数に上限は置かない（出典が無い。注文額の最安が選ぶ）。"""
     n = max(1, math.ceil(round(desired / amount, 9)))
-    if n > MAX_ORDER_COUNT:
-        return None, "too_many"
     quantity = round(n * amount, 9)
     if desired_max is not None and quantity > round(desired_max, 9):
         return None, "range"
@@ -314,34 +310,35 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None) -> list[dict]:
                           f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）"})
         elif r == "unit_price_outlier":
             conds.append({"reason": r, "threshold": None, "text": OUTLIER_NOTE})
+    if len(conds) > 1:                       # 閾値は他の条件が満たされている前提で計算している。文面で明示する
+        for c in conds:
+            c["text"] += "（ほかの確認事項も満たす場合）"
     return conds
 
 
 def build_order_section(members: list[Offer], amounts: dict[int, float], mult: float, desired: float,
                         desired_max: float | None, count_unit: str | None = None):
     """members（単位の量が読めた候補）から注文案・確認済みの最安・逆転し得る候補を作る。
-    (plans, cheapest_order, to_check, 範囲外の件数, 個数超過の件数) を返す。"""
+    (plans, cheapest_order, to_check, 範囲外の件数) を返す。"""
     plans: list[OrderPlan] = []
-    out_of_range = too_many = 0
+    out_of_range = 0
     for o in members:
         if o.price is None:
             continue
         plan, skipped = _order_plan(o, amounts[id(o)], mult, desired, desired_max, count_unit)
         if plan is not None:
             plans.append(plan)
-        elif skipped == "range":
-            out_of_range += 1
         else:
-            too_many += 1
+            out_of_range += 1
     plans.sort(key=lambda p: (p.order_total, p.order_unit_price, p.offer.mall_item_code))
     best = next((p for p in plans if p.confirmed), None)
     to_check = [ToCheck(p, _conditions(p, best)) for p in plans
                 if not p.confirmed and (best is None or p.order_total < best.order_total)]
-    return plans, best, to_check, out_of_range, too_many
+    return plans, best, to_check, out_of_range
 
 
-def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, n_to_check: int, name: str,
-                   desired: float, desired_max: float | None, out_of_range: int, too_many: int) -> list[str]:
+def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, name: str,
+                   desired: float, desired_max: float | None, out_of_range: int) -> list[str]:
     """希望量を指定した時のグループ（または全体）の caveats。"""
     out: list[str] = []
     rng = f"{format_amount(desired)}{name} 以上" + (f"・{format_amount(desired_max)}{name} 以下" if desired_max is not None else "")
@@ -356,16 +353,12 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, n_to_check: i
                    f"（足りない条件: {detail}）。to_check に条件付きの候補を安い順に出した")
     if out_of_range:
         out.append(f"希望量の上限（{format_amount(desired_max)}{name}）を超える注文になる候補は除いた: {out_of_range}件")
-    if too_many:
-        out.append(f"注文個数が {MAX_ORDER_COUNT} 個を超える候補は除いた: {too_many}件")
-    if n_to_check > TO_CHECK_MAX:
-        out.append(f"逆転し得る候補（to_check）は {n_to_check} 件あり、先頭 {TO_CHECK_MAX} 件だけ返した")
     return out
 
 
-COUNT_GROUP_CAVEAT = ("数え方の違う候補（{units}）は比べていません。最上位の cheapest_unit_price・cheapest_order・to_check は空で、"
-                      "数え語ごとの結果は groups[]（count_unit・cheapest_unit_price・cheapest_order・to_check）にあります。"
-                      "1つに絞るには basis に数え語（本・袋・枚・ロールなど）を指定してください")
+COUNT_GROUP_CAVEAT = ("数え方の違う候補（{units}）は同じ単価順に並べていません。数え方ごとのグループに分け、最安もグループごとに出しています"
+                      "（MCP・CLI の結果では groups[] の中。最上位の cheapest_unit_price・cheapest_order・to_check は空）。"
+                      "1つに絞るには basis に数え語（本・袋・枚・ロールなど）を指定してください（MCP・CLI）")
 
 
 def _split_groups(members: list[Offer], name: str, dim: str) -> list[ComparisonGroup]:
@@ -453,6 +446,10 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if from_caption:
         caveats.append(f"数量を説明欄の見出し付きの記述から補った候補: {len(from_caption)}件（題名から数量が読めなかった候補。"
                        "確認済みではないので、単位価格・注文の最安には選ばず、安い時は to_check に条件つきで出した）")
+    hinted = [o for o in unknown if o.quantity.caption_candidate is not None]
+    if hinted:
+        caveats.append(f"題名から数量が読めず、説明欄の見出し付きの記述に数量がある候補: {len(hinted)}件（印と根拠だけで、"
+                       "単価・注文案には使っていない。各候補の quantity.caption_candidate・caption_evidence を商品ページで確認）")
     conflicting = [o for o in candidates if o.quantity.caption_conflict]
     if conflicting:
         caveats.append(f"題名の数量と説明欄の見出し付きの数量が食い違う候補: {len(conflicting)}件"
@@ -474,12 +471,12 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         ranked = [o for o in g.offers if o.unit_price is not None and is_confirmed(o)]
         g.cheapest_unit_price = min(ranked, key=lambda o: (o.unit_price, o.price, o.mall_item_code))             if ranked else None
         if desired_quantity is not None:
-            plans, best, to_check, out_of_range, too_many = build_order_section(
+            plans, best, to_check, out_of_range = build_order_section(
                 g.offers, amounts, mult, desired_quantity, desired_quantity_max, g.count_unit)
-            g.order_plans, g.cheapest_order = plans, best
-            g.to_check = to_check[:TO_CHECK_MAX]
-            desired_caveats += _group_caveats(plans, best, len(to_check), g.count_unit or name, desired_quantity,
-                                              desired_quantity_max, out_of_range, too_many)
+            g.order_plans, g.cheapest_order, g.to_check = plans, best, to_check
+            desired_caveats += [(f"［{g.count_unit}］" if len(groups) > 1 else "") + c
+                                for c in _group_caveats(plans, best, g.count_unit or name, desired_quantity,
+                                                        desired_quantity_max, out_of_range)]
     if desired_quantity is not None:
         if not groups:
             desired_caveats.append(f"必要数量 {format_amount(desired_quantity)}{name} 以上を満たす注文の組み合わせがない")
