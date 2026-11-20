@@ -7,7 +7,7 @@ from jinja2 import DictLoader, Environment
 from .adapters.rakuten import is_item_url
 from .credit import CREDIT_HTML, FRESHNESS_TEXT, OPERATOR_TEXT
 from .inputs import MAX_KEYWORDS, WIDTH_TEXT
-from .pricing import OUTLIER_NOTE, format_unit_price
+from .pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, format_unit_price
 from .quantity import basis_choices, format_amount
 
 _CSS = """
@@ -105,6 +105,7 @@ _TEMPLATES = {
 <div class="meta">{{ o.shop_name or '店舗不明' }} ／ {{ qty(o) }}</div>
 {% if o.review_count %}<div class="meta">レビュー {{ o.review_average }}（{{ o.review_count }}件）</div>{% endif %}
 {% if o.unit_price_outlier %}<div class="warn">要確認: {{ outlier_note }}</div>{% endif %}
+{% if o.price_varies %}<div class="warn">要確認: {{ price_varies_note }}（価格幅 {{ yen(o.price_min) }}〜{{ yen(o.price_max) }}）</div>{% endif %}
 {% if o.shipping_title_conflict %}<div class="warn">{{ o.shipping_title_conflict }}</div>{% endif %}
 <div class="meta">取得 {{ o.fetched_at or '不明' }}</div>
 {% if safe_url(o) %}<div><a href="{{ o.url }}" target="_blank" rel="noopener">楽天市場の商品ページを開く</a></div>
@@ -173,7 +174,7 @@ def _safe_url(o: dict) -> bool:
 def render(name: str, base: str, **ctx) -> str:
     return _env.get_template(name).render(
         base=base, css=_CSS, credit=CREDIT_HTML, operator=OPERATOR_TEXT, freshness=FRESHNESS_TEXT,
-        outlier_note=OUTLIER_NOTE, yen=_yen, ship=_ship, qty=_qty, safe_url=_safe_url, bases=basis_choices(),
+        outlier_note=OUTLIER_NOTE, price_varies_note=PRICE_VARIES_NOTE, yen=_yen, ship=_ship, qty=_qty, safe_url=_safe_url, bases=basis_choices(),
         max_terms=MAX_KEYWORDS, width_text=WIDTH_TEXT, **ctx)
 
 

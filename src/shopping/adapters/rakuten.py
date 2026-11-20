@@ -75,6 +75,15 @@ def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) and value != "" else None
 
 
+def _price_range(item: dict) -> tuple[int | None, int | None]:
+    """選択肢の価格幅（itemPriceMin/Max。WP14 W1）。3 → 1 → 2 の順（指示書 WP14 W1）で、min と max が揃って読める組を採る。"""
+    for n in (3, 1, 2):
+        lo, hi = _to_int(item.get(f"itemPriceMin{n}")), _to_int(item.get(f"itemPriceMax{n}"))
+        if lo is not None and hi is not None:
+            return lo, hi
+    return None, None
+
+
 def parse_item(item: object, fetched_at: str) -> Offer:
     """formatVersion=2 の平らな item dict を Offer にする。"""
     if not isinstance(item, dict):
@@ -88,6 +97,8 @@ def parse_item(item: object, fetched_at: str) -> Offer:
     avail = _to_int(item.get("availability"))
     caption = item.get("itemCaption")
     name = item.get("itemName")
+    price_min, price_max = _price_range(item)
+    asuraku = _to_int(item.get("asurakuFlag"))
     return Offer(
         mall="rakuten",
         mall_item_code=code,
@@ -107,6 +118,9 @@ def parse_item(item: object, fetched_at: str) -> Offer:
         model_number=_str_or_none(item.get("productCode")),
         caption=caption if isinstance(caption, str) else None,
         fetched_at=fetched_at,
+        price_min=price_min, price_max=price_max,
+        asuraku_flag={0: False, 1: True}.get(asuraku) if asuraku is not None else None,
+        asuraku_closing_time=_str_or_none(item.get("asurakuClosingTime")),
     )
 
 

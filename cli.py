@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from shopping import service  # noqa: E402
 from shopping.inputs import DEFAULT_PAGES, MAX_HITS, MAX_PAGES  # noqa: E402
-from shopping.pricing import OUTLIER_NOTE, format_unit_price  # noqa: E402
+from shopping.pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, format_unit_price  # noqa: E402
 from shopping.quantity import format_amount  # noqa: E402
 
 
@@ -93,6 +93,9 @@ def _qty(o: dict) -> str:
 def _offer_line(o: dict) -> str:
     mark = "" if o["url_status"] == "ok" else " [URL要確認]"
     warn = f"\n      ※要確認: {OUTLIER_NOTE}" if o.get("unit_price_outlier") else ""
+    if o.get("price_varies"):
+        warn += (f"\n      ※要確認: {PRICE_VARIES_NOTE}"
+                 f"（価格幅 {_yen(o.get('price_min'))}〜{_yen(o.get('price_max'))}）")
     return (f"{_yen(o['price'])} | {o['shop_name'] or '店舗不明'} | {_qty(o)} | "
             f"{_ship(o)}{mark}\n      {o['name']}\n      {o['url']}{warn}")
 

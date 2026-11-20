@@ -46,7 +46,8 @@ Offer: mall, shop_name, shop_code, mall_item_code, item_name, price（税込・�
 shipping_included（true / false / null）, shipping_fee（円 / null。楽天の検索 API では常に null）,
 shipping_status（included / separate / unknown）, availability（true / false / null）,
 points_rate, review_average, review_count, coupon（null。Phase 1 は取得しない）,
-item_url（商品固有 URL）, fetched_at（ISO8601・JST）, quantity（§7）, unit_price・unit_price_label・unit_price_dimension（§8。比較が書き込む）
+item_url（商品固有 URL）, fetched_at（ISO8601・JST）, quantity（§7）, unit_price・unit_price_label・unit_price_dimension（§8。比較が書き込む）,
+price_min・price_max（選択肢の価格幅。円 / null。§5）・price_varies（min と max が両方あり min≠max の時 true。派生値）・asuraku_flag（true / false / null）・asuraku_closing_time（文字列 / null）（WP14 W1）
 
 ## 5. 楽天 Adapter
 
@@ -54,6 +55,7 @@ item_url（商品固有 URL）, fetched_at（ISO8601・JST）, quantity（§7）
 - 認証: クエリ `applicationId`、ヘッダー `accessKey`。`formatVersion=2`。
 - 応答の商品配列は **`Items`（大文字）で返ることを 2026-11-04 の実通信で確認**。`items` / `Items` の両方を受け、どちらも無ければエラー。
 - 送料: `postageFlag` 0=送料込み、1=送料別（楽天公式 IchibaItem Search の出力項目で 2026-11-05 に確認）。実額は API から得られないので shipping_fee は null。フラグを正とし、タイトルの「送料無料」「送料別」等の文字で送料を決めない。タイトルとフラグが食い違う候補は注意（notes / caveats と各候補の shipping_title_conflict）に出す。
+- **価格幅・あす楽（WP14 W1。2026-11-20 の実 API で確認）**: 応答に `itemPriceMin1〜3`・`itemPriceMax1〜3`・`itemPriceBaseField`・`asurakuFlag`・`asurakuClosingTime`・`asurakuArea` がある。`price_min`/`price_max` は `itemPriceMin3`/`Max3`（min と max が揃って読めなければ 1、次に 2 の順）。`itemPrice` は最小の選択肢の価格（例: 貼るカイロ unidy:10972223 は itemPrice=1500・Min=1500・Max=1720・BaseField=item_price_min3。画面の 60枚の選択肢は 1,720 円）なので、**Min≠Max の商品は「表示価格が商品名の数量の選択肢の価格とは限らない」**（`price_varies`）。Min=Max の商品は幅なし。`asurakuFlag`（1=あす楽）と `asurakuClosingTime` は `asuraku_flag`・`asuraku_closing_time`。発送目安・送料額・配送先別の送料・送料無料ラインの対象可否の項目は API に無い（送料は `postageFlag` のみ）。
 - 条件: keyword, NGKeyword（除外語）, minPrice/maxPrice, sort（standard / +itemPrice / -itemPrice / -reviewCount 等）, page, hits（1〜30）, availability。
 - 商品 URL は API が返したまま使う（`?rafcid=...` 等のクエリは楽天が API 経由の流入を数える値なので外さない・改変しない）。商品固有 URL は `https://item.rakuten.co.jp/<shop>/<item>/` 形式であること。検索画面 URL を商品 URL として扱わない。形式に合わない URL は item_url_status=needs_review を付けて残す（捨てない・作らない）。
 - エラー: 403 / 429 / timeout / ネットワーク / 不正 JSON を個別の種別で返す。429 はその検索全体を打ち切る（再試行ループしない）。
@@ -200,6 +202,9 @@ S1〜S11・W1〜W5 との整理（矛盾箇所の注記）:
 - **caveats に常に2行**:「仕様の違い（濃縮・層数・型番・色など）は判定していません。商品名で確認してください。」「数量は商品名からの読み取りで、誤ることがあります。購入前に商品ページで確認してください。」（この順で末尾に付く。既知の限界は §7）
 - 単価は丸める前の値で比較し、表示は小数2桁。
 - **単価の外れ値（WP10）**: 単位価格が出ている候補が **4 件以上**ある比較グループでは、単位価格の中央値の **1/10 未満**の候補に外れ値の印（`Offer.unit_price_outlier`）を付け、「数量の読み違いの疑い」として `cheapest_unit_price`・`cheapest_for_quantity`（数量を使う2つ）から外す。`cheapest_price`・`cheapest_total`（数量を使わない2つ）は変えない。候補は一覧に残し、公開Web・公開MCP・CLI が「単価が他の候補と桁違いに安い。数量の読み違いの疑い。商品ページで確認」を出す。caveats に「単価が他の候補の 1/10 未満で、数量の読み違いの疑いがある候補: N件（単位価格の最安・必要数量を満たす最安から外しています）」（0件なら出さない）。題名の読み方の言い回しではなく**結果の形**で拾う網で、失敗の向きは「本物の桁違いの掘り出し物が最安に出ない」。高すぎる側（中央値×10 超）は最安の誤りにならないので扱わない。判定は `pricing.mark_unit_price_outliers` の1か所（表示側は印を出すだけ）。N・K の根拠は下の「単価の外れ値の N・K」。
+
+- **選択肢で価格が変わる候補（WP14 W1）**: `Offer.price_varies`（§5）の候補は、表示価格が商品名の数量の選択肢の価格とは限らないので、**数量を使う最安（`cheapest_unit_price`・`cheapest_for_quantity`・注文の最安〔§8 注文の組み合わせ〕）に選ばない**。候補一覧・グループには残し、`unit_price` は表示価格で出す（価格幅 `price_min`〜`price_max` も出す）。`cheapest_price`（事実として最小の表示価格）・`cheapest_total` は変えない。caveats に「選択肢によって価格が変わる候補: N件（表示価格が商品名の数量の選択肢の価格とは限らないため、単位価格・注文の最安から外した）」。
+- **確認済み（WP14）**: 数量を使う最安に選んでよい候補の判定は `pricing.unconfirmed_reasons` / `is_confirmed` の1か所。確認済み＝数量が商品名から high ∧ 選択肢で価格が変わらない ∧ 外れ値でない（注文の最安ではさらに送料が確定＝送料込み。単位価格の最安は送料を見ない）。確認済みでない理由の語: `quantity_unknown`・`price_varies`・`unit_price_outlier`・`quantity_from_caption`・`shipping_separate`・`shipping_unknown`。
 
 ### 確定した契約（価格比較）
 

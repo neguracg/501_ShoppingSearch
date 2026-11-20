@@ -86,6 +86,11 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
         "unit_price_label": offer.unit_price_label,
         "unit_price_dimension": offer.unit_price_dimension,
         "unit_price_outlier": offer.unit_price_outlier,
+        "price_min": offer.price_min,
+        "price_max": offer.price_max,
+        "price_varies": offer.price_varies,
+        "asuraku_flag": offer.asuraku_flag,
+        "asuraku_closing_time": offer.asuraku_closing_time,
     }
     if known_urls is not None:
         d["is_known_url"] = offer.item_url in known_urls

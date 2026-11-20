@@ -22,6 +22,34 @@ OUTLIER_RATIO = 10
 OUTLIER_NOTE = "単価が他の候補と桁違いに安い。数量の読み違いの疑い。商品ページで確認"
 
 
+# 選択肢で価格が変わる候補（WP14 W1。SPEC §8）。表示価格（itemPrice）は最小の選択肢の価格で、商品名の数量の選択肢の
+# 価格とは限らない。単位価格・注文の最安には選ばず、一覧には残す
+PRICE_VARIES_NOTE = "選択肢によって価格が変わる。表示価格は商品名の数量の選択肢の価格とは限らない。商品ページで確認"
+
+
+def unconfirmed_reasons(o: Offer, *, shipping: bool = False) -> list[str]:
+    """「確認済み」でない理由（空なら確認済み）。単位価格の最安・注文の最安・to_check が呼ぶ唯一の判定（WP14）。
+    確認済み＝数量が商品名から high ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
+    理由の語: quantity_unknown / price_varies / unit_price_outlier / quantity_from_caption / shipping_separate / shipping_unknown。"""
+    reasons: list[str] = []
+    q = o.quantity
+    if q is None or q.confidence != "high":
+        reasons.append("quantity_unknown")
+    elif getattr(q, "source", "title") != "title":
+        reasons.append("quantity_from_caption")
+    if o.price_varies:
+        reasons.append("price_varies")
+    if o.unit_price_outlier:
+        reasons.append("unit_price_outlier")
+    if shipping and total_price(o) is None:
+        reasons.append("shipping_separate" if o.shipping_status == "separate" else "shipping_unknown")
+    return reasons
+
+
+def is_confirmed(o: Offer, *, shipping: bool = False) -> bool:
+    return not unconfirmed_reasons(o, shipping=shipping)
+
+
 def unit_price_digits(x: float) -> int:
     """単価の小数桁数（唯一の実装）。通常は 2 桁。2 桁で 0.00 になってしまう小さな正の値は有効数字が出るまで
     増やす（最大 4 桁。S10）。"""
@@ -237,8 +265,13 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         caveats.append(f"単価が他の候補の 1/{OUTLIER_RATIO} 未満で、数量の読み違いの疑いがある候補: "
                        f"{len(outliers)}件（単位価格の最安・必要数量を満たす最安から外しています）")
 
+    varies = [o for o in members if o.price_varies]
+    if varies:
+        caveats.append(f"選択肢によって価格が変わる候補: {len(varies)}件（表示価格が商品名の数量の選択肢の価格とは"
+                       "限らないため、単位価格・注文の最安から外した）")
+
     cheapest_price = min(priced, key=lambda o: (o.price, o.mall_item_code)) if priced else None
-    ranked = [o for o in members if o.unit_price is not None and not o.unit_price_outlier]
+    ranked = [o for o in members if o.unit_price is not None and is_confirmed(o)]
     cheapest_unit = min(ranked, key=lambda o: (o.unit_price, o.price, o.mall_item_code)) \
         if ranked else None
 
@@ -253,7 +286,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
 
     meeting = None
     if desired_quantity is not None:
-        ok = [o for o in members if o.price is not None and not o.unit_price_outlier
+        ok = [o for o in members if o.price is not None and is_confirmed(o)
               and amounts[id(o)] >= desired_quantity]
         if ok:
             meeting = min(ok, key=lambda o: (o.price, o.unit_price, o.mall_item_code))

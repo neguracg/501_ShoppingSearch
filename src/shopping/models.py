@@ -57,6 +57,19 @@ class Offer:
     # 単位価格が同じ比較グループの中央値の 1/10 未満（数量の読み違いの疑い。WP10）。比較が書き込む。
     # True の候補は単位価格の最安・必要数量を満たす最安に選ばれない（候補一覧には残す）
     unit_price_outlier: bool = False
+    # 選択肢（サイズ・枚数）で価格が変わる商品の価格幅（WP14 W1。楽天の itemPriceMin/Max。出典 SPEC §5）。
+    # price（itemPrice）は最小の選択肢の価格で、商品名の数量の選択肢の価格とは限らない
+    price_min: int | None = None
+    price_max: int | None = None
+    # あす楽（楽天の asurakuFlag / asurakuClosingTime）。発送目安・送料額の項目は API に無い
+    asuraku_flag: bool | None = None
+    asuraku_closing_time: str | None = None
+
+    @property
+    def price_varies(self) -> bool:
+        """選択肢によって価格が変わる（min と max が両方あり min≠max）。この時 price は商品名の数量の価格とは限らない。"""
+        return (self.price_min is not None and self.price_max is not None
+                and self.price_min != self.price_max)
 
 
 @dataclass
