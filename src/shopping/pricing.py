@@ -8,9 +8,9 @@ from collections import Counter
 from statistics import median
 from dataclasses import dataclass, field
 
-from .inputs import check_desired_range
+from .inputs import check_desired_range, resolve_compare_basis
 from .models import Offer
-from .quantity import DISPLAY, _norm, base_unit, format_amount, parse_quantity, resolve_basis
+from .quantity import DISPLAY, _norm, base_unit, format_amount, parse_quantity
 
 SPEC_CAVEAT = "仕様の違い（濃縮・層数・型番・色など）は判定していません。商品名で確認してください。"
 QUANTITY_CAVEAT = "数量は商品名からの読み取りで、誤ることがあります。購入前に商品ページで確認してください。"
@@ -365,15 +365,31 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, n_to_check: i
     return out
 
 
+COUNT_GROUP_CAVEAT = ("数え方の違う候補（{units}）は比べていません。最上位の cheapest_unit_price・cheapest_order・to_check は空で、"
+                      "数え語ごとの結果は groups[]（count_unit・cheapest_unit_price・cheapest_order・to_check）にあります。"
+                      "1つに絞るには basis に数え語（本・袋・枚・ロールなど）を指定してください")
+
+
 def _split_groups(members: list[Offer], name: str, dim: str) -> list[ComparisonGroup]:
-    """単位価格の出た候補を比較グループに分ける。いまは basis の次元ごとに 1 つ。"""
-    return [ComparisonGroup(basis=name, dimension=dim, offers=members)] if members else []
+    """単位価格の出た候補を比較グループに分ける（WP14 W3）。basis が個（数える）の時は数え語（count_unit）ごと
+    （本・袋・枚・ロール・個…を同じ単価順に並べない）。大きいグループが先。ほかの次元は次元ごとに 1 つ。"""
+    if not members:
+        return []
+    if dim != "count":
+        return [ComparisonGroup(basis=name, dimension=dim, offers=members)]
+    by: dict[str, list[Offer]] = {}
+    for o in members:
+        by.setdefault(o.quantity.count_unit, []).append(o)
+    return [ComparisonGroup(basis=name, dimension=dim, offers=by[u], count_unit=u)
+            for u in sorted(by, key=lambda u: (-len(by[u]), u))]
 
 
 def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             desired_quantity=None, basis: str | None = None, desired_quantity_max=None) -> Comparison:
     check_desired_range(desired_quantity, desired_quantity_max)   # 検査の実装は inputs に一本化（不正なら InvalidInput＝ValueError）
-    fixed = resolve_basis(basis) if basis not in (None, "") else None   # 不正なら ValueError
+    fixed3 = resolve_compare_basis(basis) if basis not in (None, "") else None   # 不正なら ValueError。数え語の指定（本・袋…）も通る
+    fixed = fixed3[:2] if fixed3 else None
+    counter = fixed3[2] if fixed3 else None            # basis に数え語を指定した時、その数え語の候補だけで比べる（WP14 W3）
     caveats: list[str] = []
     notes: list[str] = []
 
@@ -391,12 +407,18 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
 
     name, dim = fixed if fixed else _auto_basis(candidates)
     mult, label = DISPLAY[dim]
+    if counter:
+        label = f"1{counter}あたり"
 
     members: list[Offer] = []
     unknown: list[Offer] = []
+    other_unit: list[Offer] = []
     amounts: dict[int, float] = {}
     for o in candidates:
         amount = _amount(o, dim)
+        if amount is not None and counter and o.quantity.count_unit != counter:
+            other_unit.append(o)                       # 数え語が違う（本を指定したのに袋）。単価を出さず、比べない
+            amount = None
         if amount is None:
             unknown.append(o)
             continue
@@ -408,8 +430,8 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         members.append(o)
     members.sort(key=lambda o: (o.unit_price is None, o.unit_price or 0.0,
                                 o.price if o.price is not None else 10**12, o.mall_item_code))
-    outliers = mark_unit_price_outliers(members)
     groups = _split_groups(members, name, dim)
+    outliers = [o for g in groups for o in mark_unit_price_outliers(g.offers)]      # 外れ値は数え語のグループの中で判定する
 
     priced = [o for o in candidates if o.price is not None]
     if len(priced) != len(candidates):
@@ -419,6 +441,8 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if unknown:
         caveats.append(f"単価を出せない候補: {len(unknown)}件（比べる単位 {name} の量を商品名から"
                        "確定できないため、単位価格の最安の判定から外した）")
+    if other_unit:
+        caveats.append(f"数え語が {counter} でない候補: {len(other_unit)}件（比べる単位 {counter} の量を持たないので単価を出していない）")
     if outliers:
         caveats.append(f"単価が他の候補の 1/{OUTLIER_RATIO} 未満で、数量の読み違いの疑いがある候補: "
                        f"{len(outliers)}件（単位価格の最安・必要数量を満たす最安から外しています）")
@@ -458,6 +482,8 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             desired_caveats.append(SHIPPING_LINE_CAVEAT)
     caveats.extend(desired_caveats)
 
+    if len(groups) > 1:
+        caveats.append(COUNT_GROUP_CAVEAT.format(units="・".join(g.count_unit for g in groups)))
     only = groups[0] if len(groups) == 1 else None
     meeting = only.cheapest_order.offer if only is not None and only.cheapest_order is not None else None
 

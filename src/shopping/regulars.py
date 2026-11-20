@@ -7,8 +7,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .inputs import InvalidInput, check_desired_quantity
-from .quantity import resolve_basis
+from .inputs import InvalidInput, check_desired_quantity, resolve_compare_basis
 
 DEFAULT_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "regulars.json"
 PATH_ENV = "SHOPPING_REGULARS_PATH"
@@ -71,7 +70,7 @@ def _parse_one(d: object, index: int) -> Regular:
     basis = d.get("basis")
     if basis is not None:
         try:
-            resolve_basis(basis)
+            resolve_compare_basis(basis)
         except ValueError:
             raise RegularsError("invalid_format", f"{rid}: basis is not a known unit") from None
     dq = d.get("desired_quantity")

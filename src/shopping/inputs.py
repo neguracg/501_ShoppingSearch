@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 
-from .quantity import basis_choices, resolve_basis
+from .quantity import basis_choices, resolve_basis, resolve_counter
 
 MAX_KEYWORDS = 5                 # 検索語・含む語・除く語・楽天側の除外語、いずれも 1〜5 語
 MAX_BYTES = 128                  # 出典: 楽天 keyword の上限（半角 128 文字）を安全側に解釈。1 語の長さ（UTF-8 で 128 バイト = 半角 128 文字 = 全角 42 文字）
@@ -188,15 +188,30 @@ def validate(*, keywords, ng_keyword=None, min_price=None, max_price=None, sort=
     check_desired_range(desired_quantity, desired_quantity_max)
 
 
+def resolve_compare_basis(basis) -> tuple[str, str, str | None]:
+    """比べる単位の指定 → (基準単位名, 次元, 数え語)。"個"・基準単位・別名は quantity.resolve_basis と同じ（数え語は None）。
+    数え語の正規名・別名（本・袋・枚・ロール・R など。"個" を除く）は ("本", "count", "本")＝その数え語の候補だけで比べる（WP14 W3）。
+    表に無ければ ValueError。service・pricing・定番品マスタが同じ関数を通る。"""
+    try:
+        name, dim = resolve_basis(basis)
+        return name, dim, None
+    except ValueError:
+        pass
+    counter = resolve_counter(basis) if isinstance(basis, str) else None
+    if counter is not None and counter != "個":
+        return counter, "count", counter
+    raise ValueError("invalid basis")
+
+
 def check_basis(basis) -> None:
-    """比べる単位の検査（None・空は自動）。不正なら InvalidInput。service・pricing もここを呼ぶ。"""
+    """比べる単位の検査（None・空は自動）。不正なら InvalidInput。service・pricing・定番品マスタもここを呼ぶ。"""
     if basis in (None, ""):
         return
     try:
-        resolve_basis(basis)
+        resolve_compare_basis(basis)
     except ValueError:
         raise InvalidInput("比べる単位は " + " / ".join(basis_choices())
-                           + "（または L・kg 等の別名）で指定してください。") from None
+                           + "（または L・kg 等の別名）か、数え語（本・袋・枚・ロール など）で指定してください。") from None
 
 
 def check_desired_quantity(value) -> None:

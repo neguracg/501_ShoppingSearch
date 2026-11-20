@@ -145,6 +145,11 @@ def resolve_unit(alias: str) -> tuple[str, float] | None:
     return _unit_table().get(_norm(alias).strip())
 
 
+def resolve_counter(alias: str) -> str | None:
+    """数え語の別名 → 正規の数え語（"R" → "ロール"）。無ければ None。（basis に数え語を指定する時の引き方。WP14 W3）"""
+    return _counter_table().get(_norm(alias).strip())
+
+
 def base_unit(dimension: str) -> str:
     """次元の基準単位名（"ml" 等）。表示ラベルの先頭の数字と「あたり」を除いたもの。"""
     label = DISPLAY[dimension][1]

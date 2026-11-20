@@ -183,4 +183,5 @@ _DIMENSION_LABELS = {"count": "個数", "volume": "容量", "mass": "重さ", "l
 
 
 def group_title(g: dict, basis_label: str) -> str:
-    return f"{basis_label}で比較（{_DIMENSION_LABELS.get(g.get('dimension'), g.get('dimension'))}）"
+    unit = f"［{g['count_unit']}］" if g.get("count_unit") else ""     # 数え語ごとのグループ（WP14 W3）
+    return f"{basis_label}{unit}で比較（{_DIMENSION_LABELS.get(g.get('dimension'), g.get('dimension'))}）"
