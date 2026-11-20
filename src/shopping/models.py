@@ -27,6 +27,9 @@ class QuantityInfo:
     # {"count_total","count_unit","content_amount","content_dimension"}。caption_quantity.CAPTION_FILL_UNIT_PRICE を True にすると
     # この候補を数量として補完する（source="caption"）形になる
     caption_candidate: dict | None = None
+    # 包装の数（WP15 段B。題名の F1〜F3 の形。pack_forms.py）。[{"unit":"袋","count":2,"per_pack":18,"per_pack_unit":"本"}]。
+    # 題名の総数が high でその総数が N×M と一致する時だけ。読めなければ []。総数・confidence には影響しない
+    packs: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if (self.measure_total is None and self.count_total is not None
@@ -65,6 +68,9 @@ class Offer:
     # 単位価格が同じ比較グループの中央値の 1/10 未満（数量の読み違いの疑い。WP10）。比較が書き込む。
     # True の候補は単位価格の最安・必要数量を満たす最安に選ばれない（候補一覧には残す）
     unit_price_outlier: bool = False
+    # basis に数え語（袋）を指定した比較で、1袋の中身が基準と食い違う（WP15 段B。比較が書き込む。counter_basis.py）。
+    # True の候補の単価は仮（pack_content_differs）で、注文の最安に選ばれない
+    pack_content_differs: bool = False
     # 選択肢（サイズ・枚数）で価格が変わる商品の価格幅（WP14 W1。楽天の itemPriceMin/Max。出典 SPEC §5）。
     # price（itemPrice）は最小の選択肢の価格で、商品名の数量の選択肢の価格とは限らない
     price_min: int | None = None
