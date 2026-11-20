@@ -308,7 +308,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
     # 逆転できる上限額 X（この案の総額が X 円未満なら確認済みの最安より安い）
     limit = None
     if best is not None:
-        limit = _unit_raw(best) * plan.order_quantity if by_unit else best.order_total
+        # 比で丸める（浮動小数の誤差で整数が +ε になり ceil が 1 円ずれるのを防ぐ。n の計算と同じ流儀）
+        limit = round(_unit_raw(best) * plan.order_quantity, 9) if by_unit else best.order_total
         if limit <= plan.order_total:
             limit = None
     threshold = None
