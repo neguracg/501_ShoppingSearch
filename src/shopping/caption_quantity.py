@@ -7,9 +7,8 @@ WP11-2 の「説明文の全文を 2 つ目の読み取り元にする」案（�
               （食い違えば caption_conflict の印と根拠を付けるだけ）。low の題名（題名の中に食い違う数がある）には補わない。
 採らない所は語のリストではなく位置・区切りで決める: 「関連キーワード」「本商品の説明ではありません」以降、「はこちら」を含む
 記述、見出しの無い文中の数（本品を1～2本・まめカイロ7枚・15点以上）。
-出荷形は印と根拠だけ（CAPTION_FILL_UNIT_PRICE=False）: 数量は none のまま、quantity.caption_candidate・caption_evidence に候補と根拠を返す。
-True にすると補った数量（source="caption"）として単位価格を出し、確認済みではない（pricing.unconfirmed_reasons が
-quantity_from_caption として最安から外す）。
+補った数量は source="caption"・caption_evidence を持ち、単位価格を出すが確認済みではない（pricing.unconfirmed_reasons が
+quantity_from_caption として最安から外す）。CAPTION_FILL_UNIT_PRICE=False にすると印と根拠だけ（quantity.caption_candidate）に縮む。
 """
 from __future__ import annotations
 
@@ -23,10 +22,11 @@ from .quantity import _counter_table, _norm, _token_re, _unit_table, parse_quant
 HEADINGS = ("入り数", "入数", "内容量", "数量", "容量")
 # 値に「1個あたり」の言い回し（あたり・当たり・当り・につき・ごと）がある時は、総数ではなく単位あたりの説明なので読まない
 _PER_UNIT = re.compile(r"あたり|当たり|当り|につき|ごと")
-# 出荷形（WP14 W4）: False＝印と根拠だけ（quantity.caption_candidate・caption_evidence。数量は none のまま・単位価格を出さない）。
-# True＝補完した数量（source="caption"・high）として単位価格を出し、グループに並べる（確認済みではない・最安に選ばない）。
-# 指示書の基準（補完の誤りが 10% 超なら印だけに縮める）に実測が当たったので False（SPEC §7 W4 の実測）。
-CAPTION_FILL_UNIT_PRICE = False
+# 補完の形（WP14 W4）: True＝補完した数量（source="caption"・high）として単位価格を出し、グループに並べる。確認済みではないので
+# 最安・注文の最安には選ばれず、安い時は to_check に「説明欄『…』の数量が正しければ」の条件つきで出る（誤りの害は条件文の中に閉じる。
+# オーケストレータの判断で出荷）。False＝印と根拠だけ（quantity.caption_candidate・caption_evidence。数量は none のまま・単位価格を出さない）。
+# 実測では指示書の基準（補完の誤り 10% 超）に当たった（SPEC §7 W4 の実測）が、確認済みにしない前提で完全形を採った。
+CAPTION_FILL_UNIT_PRICE = True
 VALUE_MAX = 40                                     # 値として読む最大文字数（見出しの直後から）
 
 # 説明欄のここから後ろは本商品の記述ではない（検索用キーワード列・断り書き）。位置で切る

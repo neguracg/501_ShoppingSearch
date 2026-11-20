@@ -31,14 +31,16 @@ PRICE_VARIES_NOTE = "選択肢によって価格が変わる。表示価格は�
 
 def unconfirmed_reasons(o: Offer, *, shipping: bool = False) -> list[str]:
     """「確認済み」でない理由（空なら確認済み）。単位価格の最安・注文の最安・to_check が呼ぶ唯一の判定（WP14）。
-    確認済み＝数量が商品名から high ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
-    理由の語: quantity_unknown / price_varies / unit_price_outlier / quantity_from_caption / shipping_separate / shipping_unknown。"""
+    確認済み＝数量が商品名から high ∧ 説明欄の見出し付きの数量と食い違わない ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
+    理由の語: quantity_unknown / caption_conflict / price_varies / unit_price_outlier / quantity_from_caption / shipping_separate / shipping_unknown。"""
     reasons: list[str] = []
     q = o.quantity
     if q is None or q.confidence != "high":
         reasons.append("quantity_unknown")
     elif getattr(q, "source", "title") != "title":
         reasons.append("quantity_from_caption")
+    if q is not None and q.caption_conflict:
+        reasons.append("caption_conflict")
     if o.price_varies:
         reasons.append("price_varies")
     if o.unit_price_outlier:
@@ -305,6 +307,11 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None) -> list[dict]:
                 conds.append({"reason": r, "threshold": None, "text":
                               f"商品名の数量（{label}）の選択肢の価格が確認できれば確認済みになる"
                               f"（価格幅 {o.price_min:,}〜{o.price_max:,}円）"})
+        elif r == "caption_conflict":
+            ev = getattr(q, "caption_evidence", None) or ""
+            conds.append({"reason": r, "threshold": None, "text":
+                          f"題名の数量と説明欄『{ev}』の数量が食い違う。どちらが正しいか商品ページで確認"
+                          "（説明欄が 1 パックあたりの記述のこともある）"})
         elif r == "quantity_from_caption":
             ev = getattr(q, "caption_evidence", None) or ""
             conds.append({"reason": r, "threshold": None, "text":
@@ -348,7 +355,8 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, name: str,
     elif best is None:
         parts = Counter(r for p in plans for r in p.reasons)
         label = {"shipping_separate": "送料別", "shipping_unknown": "送料不明", "price_varies": "選択肢で価格が変わる",
-                 "unit_price_outlier": "数量の読み違いの疑い", "quantity_from_caption": "説明欄から補完した数量"}
+                 "unit_price_outlier": "数量の読み違いの疑い", "quantity_from_caption": "説明欄から補完した数量",
+                 "caption_conflict": "題名と説明欄の数量が食い違う"}
         detail = "・".join(f"{label[k]} {v}件" for k, v in parts.items() if k in label)
         out.append(f"確認済み（数量が商品名から読め・価格が選択肢で変わらず・外れ値でなく・送料込み）の注文の候補がない"
                    f"（足りない条件: {detail}）。to_check に条件付きの候補を安い順に出した")

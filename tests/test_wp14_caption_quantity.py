@@ -7,7 +7,7 @@ import cli
 from fakes import make_offer
 from shopping import caption_quantity, service
 from shopping.caption_quantity import read_caption, read_offer_quantity
-from shopping.pricing import compare
+from shopping.pricing import compare, unconfirmed_reasons
 from shopping.quantity import parse_quantity
 
 COLOLO_TITLE = "文化たきつけ☆木炭・練炭・豆炭・石炭・オガ炭・薪用簡単着火剤・屋外用（火おこしグッズ）"
@@ -20,8 +20,18 @@ UNIDY_CAPTION = ("10枚はこちら 30枚はこちら 60枚はこちら 温活�
 
 @pytest.fixture
 def fill(monkeypatch):
-    """補完（単位価格を出す完全形）に切り替える。出荷形は印と根拠だけ（CAPTION_FILL_UNIT_PRICE=False）。"""
+    """補完（単位価格を出す完全形）。出荷形（CAPTION_FILL_UNIT_PRICE=True）の明示。"""
     monkeypatch.setattr(caption_quantity, "CAPTION_FILL_UNIT_PRICE", True)
+
+
+@pytest.fixture
+def mark_only(monkeypatch):
+    """印と根拠だけの縮めた形（CAPTION_FILL_UNIT_PRICE=False）。"""
+    monkeypatch.setattr(caption_quantity, "CAPTION_FILL_UNIT_PRICE", False)
+
+
+def test_shipped_default_is_the_fill_form():
+    assert caption_quantity.CAPTION_FILL_UNIT_PRICE is True
 
 
 def offer(title, caption, price=500, lo=None, hi=None):
@@ -32,7 +42,7 @@ def offer(title, caption, price=500, lo=None, hi=None):
 
 # --- 補う（題名が none）---------------------------------------------------------------------------
 
-def test_real_cololo_caption_is_a_mark_with_the_evidence_in_the_shipped_form():
+def test_real_cololo_caption_is_a_mark_with_the_evidence_in_the_mark_only_form(mark_only):
     q = read_offer_quantity(offer(COLOLO_TITLE, COLOLO_CAPTION))
     assert (q.confidence, q.count_total, q.source) == ("none", None, "title")       # 数量は none のまま（単価を出さない）
     assert q.caption_evidence == "数量:18本入り"
@@ -40,7 +50,7 @@ def test_real_cololo_caption_is_a_mark_with_the_evidence_in_the_shipped_form():
     assert parse_quantity(COLOLO_TITLE).confidence == "none"           # 題名側の出力は変わらない
 
 
-def test_real_cololo_caption_fills_18_hon_with_the_evidence_in_the_fill_form(fill):
+def test_real_cololo_caption_fills_18_hon_with_the_evidence(fill):
     q = read_offer_quantity(offer(COLOLO_TITLE, COLOLO_CAPTION))
     assert (q.confidence, q.count_total, q.count_unit, q.source) == ("high", 18, "本", "caption")
     assert q.caption_evidence == "数量:18本入り" and q.caption_candidate is None
@@ -167,6 +177,32 @@ def test_conflict_count_caveat_and_service_dict():
     assert "caption_evidence" in d["quantity"]
 
 
+def test_conflicting_candidate_is_not_confirmed_and_goes_to_to_check_with_a_condition():
+    # C: 題名 high でも説明欄の見出し付きの数量と食い違う候補は確認済みから外す（実: cololo:10000071 の 10個セット / 18本入り×10個）
+    plain = offer("文化たきつけ10個セット☆木炭", None, price=2300)
+    plain.mall_item_code = "plain"
+    conflict = offer("文化たきつけ10個セット☆木炭・練炭", "主な仕様 ■数量:18本入り×10個 ■材質", price=2980)
+    conflict.mall_item_code = "conf"
+    cheap = offer("文化たきつけ10個セット☆木炭", "■数量:18本入り×10個", price=1000)
+    cheap.mall_item_code = "cheap"
+    r = compare([plain, conflict, cheap], basis="個", desired_quantity=10)
+    assert unconfirmed_reasons(conflict) == ["caption_conflict"]
+    assert r.cheapest_unit_price.mall_item_code == "plain"
+    assert r.cheapest_order.offer.mall_item_code == "plain"
+    by = {t.plan.offer.mall_item_code: t for t in r.to_check}
+    assert set(by) == {"cheap"}                                    # 注文額が最安より安いものだけ
+    cond = by["cheap"].conditions[0]
+    assert cond["reason"] == "caption_conflict" and "数量:18本入り×10個" in cond["text"] and "食い違う" in cond["text"]
+    assert not conflict.unit_price_outlier and conflict.quantity.confidence == "high"       # confidence は変えない
+
+
+def test_a_conflict_alone_still_lists_when_nothing_is_confirmed():
+    only = offer("文化たきつけ10個セット☆木炭", "■数量:18本入り×10個", price=2980)
+    r = compare([only], basis="個", desired_quantity=10)
+    assert r.cheapest_order is None and r.to_check[0].conditions[0]["reason"] == "caption_conflict"
+    assert any("題名と説明欄の数量が食い違う 1件" in c for c in r.caveats)
+
+
 def test_service_annotates_with_the_caption_for_search_and_compare(fill):
     class Ad:
         mall = "rakuten"
@@ -178,7 +214,7 @@ def test_service_annotates_with_the_caption_for_search_and_compare(fill):
         assert offers[0]["quantity"]["source"] == "caption" and offers[0]["quantity"]["count_total"] == 18
 
 
-def test_cli_marks_caption_quantity_in_both_forms(monkeypatch):
+def test_cli_marks_caption_quantity_in_both_forms(monkeypatch, mark_only):
     o = offer(COLOLO_TITLE, COLOLO_CAPTION)
     o.quantity = read_offer_quantity(o)
     text = cli._qty(service.offer_to_dict(o))
@@ -189,7 +225,7 @@ def test_cli_marks_caption_quantity_in_both_forms(monkeypatch):
     assert "説明欄の記述から補完" in text and "数量:18本入り" in text
 
 
-def test_shipped_form_never_gives_a_unit_price_or_a_plan_but_says_so_in_caveats():
+def test_mark_only_form_never_gives_a_unit_price_or_a_plan_but_says_so_in_caveats(mark_only):
     cap = offer(COLOLO_TITLE, COLOLO_CAPTION, price=490)
     plain = offer("文化たきつけ 18本入り", None, price=1200)
     r = compare([plain, cap], basis="本", desired_quantity=18)
