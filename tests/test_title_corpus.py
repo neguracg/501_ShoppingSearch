@@ -1,5 +1,5 @@
 """AC-Q1: 実在らしい題名コーパス（tests/corpus/ の title_patterns 232件・unseen1_patterns 71件・unseen2_patterns 40件・unseen3_patterns 40件・unseen4_patterns 7件（E2E 実題名 T1〜T7）・unseen5_patterns 17件（verifier 退行形 B1〜B6）・unseen6_patterns 14件（追加E2E 実題名 E1・E2 と verifier B8）・unseen7_patterns 31件（WP12 実題名 M1〜M4・構成した M5・真値どおり high のまま残る形）
-＝計452件。verifier 作成の真値つき。unseen7 は実装担当が題名の読みだけで固定）の回帰。
+＝計452件（WP14 W5(c)＝WP13 で unseen8_patterns 28件〔E2E 実題名 D1〜D3・構成した形・W5(b) の形〕を追加して計480件）。verifier 作成の真値つき。unseen7 は実装担当が題名の読みだけで固定）の回帰。
 
 採点は tests/corpus/compare.py の grade と同じ規則:
   - 高信頼（high）で真値と違う（WRONG）・曖昧な題名を高信頼で返す（RISK）・例外（EXC）は 0 件であること。
@@ -17,7 +17,7 @@ from shopping.quantity import parse_quantity
 
 CORPUS_FILES = {"title_patterns": 232, "unseen1_patterns": 71, "unseen2_patterns": 40,
                 "unseen3_patterns": 40,
-                "unseen4_patterns": 7, "unseen5_patterns": 17, "unseen6_patterns": 14, "unseen7_patterns": 31}
+                "unseen4_patterns": 7, "unseen5_patterns": 17, "unseen6_patterns": 14, "unseen7_patterns": 31, "unseen8_patterns": 28}
 
 
 def _load(name):
@@ -73,7 +73,7 @@ def _case(title, truth):
 
 def test_corpus_is_the_expected_size_and_xfail_titles_exist():
     assert {n: len(_load(n)) for n in CORPUS_FILES} == CORPUS_FILES
-    assert len(CORPUS) == 452
+    assert len(CORPUS) == 480
     titles = {t for t, _ in CORPUS}
     assert set(XFAIL) <= titles
 

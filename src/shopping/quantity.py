@@ -562,6 +562,10 @@ def _joins(s: str, p: _Tok, t: _Tok, g: _Group, flags: list[str],
                     return True
                 flags.append("ambiguous")
             return False
+        if (len(g.toks) == 1 and "入" not in gap and p.n != 1 and t.n != 1
+                and (_is_composite_outer(s, t) or _is_composite_outer(s, p))):
+            flags.append("ambiguous")        # WP14 W5(b): 36本 2個パック（36 が合計か 1 パックあたりか決まらない）
+            return False
         if "入" in gap or (t.word in CONTAINERS and all(f.word != t.word for f in facs)):
             return True
         # 外側「5箱」のあとに内側「60個入」が来る順は、W1（内側→外側）とは逆で、積か説明か決められない
@@ -577,6 +581,18 @@ def _joins(s: str, p: _Tok, t: _Tok, g: _Group, flags: list[str],
         return p.n != 1 and (p.word != t.word or t.mult > 1)
     plain = _GAP_COUNT_MEASURE if {p.kind, t.kind} == {"count", "measure"} else _GAP_PLAIN
     return bool(_GAP_X.fullmatch(gap) or plain.fullmatch(gap))
+
+
+# WP14 W5(b): 「N個＋容器語」の複合（2個パック・2個セット・3個ケース）。外側の入れ物の個数だけを言う記述で、内側に 入 も × も無い
+# `36本 2個パック` は、36 が合計か 1 パックあたりか決まらない（P0: low）。内側が単独の個数（鎖の先頭が p だけ）の時に限る
+# （50m×12ロール 【4個セット】 のように内側が × の鎖なら 12ロール×4個セット＝48 で決まる）。容器語は CONTAINERS・OUTER_WORDS の和集合（語を足さない）
+_CONTAINER_AFTER = re.compile("(?:" + "|".join(sorted(CONTAINERS | OUTER_WORDS, key=lambda w: (-len(w), w))) + ")")
+
+
+def _is_composite_outer(s: str, t: _Tok) -> bool:
+    """t が「N個＋容器語」（個の直後に容器語が続く個数）か。ダース（mult>1）や、ヶ・コ・pc などの別名の数え語は含めない（正規の個の字面だけ）。"""
+    return (t.kind == "count" and t.mult == 1 and s[t.start:t.end].endswith("個")
+            and _CONTAINER_AFTER.match(s, t.end) is not None)
 
 
 _LOOKAHEAD = 8          # 先読みする鎖の最大トークン数（商品名の鎖はこれより短い）
@@ -604,10 +620,38 @@ def _group(s: str, toks: list[_Tok], flags: list[str]) -> list[_Group]:
     return groups
 
 
-def _drop_restated(g: _Group, flags: list[str]) -> _Group:
+def _declared_total(s: str, g: _Group, flags: list[str]) -> _Group:
+    """WP14 W5(c)（WP13）: 先頭の単独の個数が、内容量より後ろの個数の鎖の積と一致するなら「宣言された総数」の言い直し
+    （48本 500ml 24本入り 2ケース → 24×2=48。先頭の 48 を鎖に掛けて 2304 にしない）。食い違えば low（P0）。
+    対象は、内容量より前にただ 1 つの個数（個数 1 以外・直後に 入 が付かない）があり、内容量より後ろに 2 つ以上の個数の鎖がある群だけ。
+    後ろに個数が無い（48本 500ml）・後ろが単独の個数（6本 500ml×4＝掛け算、2枚組 34cm ×2セット＝P4）・先頭に 入 が付く
+    （3個入り 400ml×3セット）・先頭の個数が複数は従来どおり。"""
+    first_measure = next((i for i, t in enumerate(g.toks) if t.kind == "measure"), None)
+    if first_measure is None:
+        return g
+    pre = [t for t in g.toks[:first_measure] if t.kind in ("count", "bare")]
+    post = [t for t in g.toks[first_measure + 1:] if t.kind in ("count", "bare")]
+    if len(pre) != 1 or len(post) < 2:          # 後ろが単独の個数（6本 500ml×4・2枚組 34cm ×2セット）は従来の S2・P4 のまま
+        return g
+    head = pre[0]
+    if head.kind != "count" or head.n == 1 or head.mult > 1 or _IRI_AFTER.match(s, head.end):
+        return g
+    product = 1
+    for t in post:
+        product *= int(t.n)
+    if product == head.n:
+        return _Group([t for t in g.toks if t is not head])      # 先頭は総数の言い直し。後ろの鎖が総数（同じ値）
+    if any(t.n == head.n for t in post):
+        return g                                                 # 後ろの鎖の中に同じ数がある（選べる2ケース 600ml×24本×2ケース）。S2 の言い直しに任せる
+    flags.append("ambiguous")                                    # 先頭の個数と後ろの鎖の積が食い違う（総数か乗数か決められない）
+    return g
+
+
+def _drop_restated(g: _Group, flags: list[str], s: str = "") -> _Group:
     """内容量の後ろで、内容量より前に書かれた個数と同じ数が出てきたら言い直し（二重に掛けない。S2）。
     例: 24本 (500ml×24) / 6袋 900g×6 / 2袋 (5kg×2袋)。ただし先の数え語と違う容器語で同数なら掛け算（P4。
-    3個入り 400ml×3セット → 9）。"""
+    3個入り 400ml×3セット → 9）。内容量の前の単独の個数が後ろの鎖の積と一致する時は先に _declared_total が言い直しとして外す。"""
+    g = _declared_total(s, g, flags)
     before: dict[float, str] = {}
     seen_measure = False
     kept: list[_Tok] = []
@@ -739,7 +783,7 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     agreed = {_total(g) for g in groups if g.factors and not g.toks[0].solo_low}
     if any(_total(g) not in agreed for g in solo):
         return _low(evidence)
-    groups = [_drop_restated(g, flags) for g in groups]
+    groups = [_drop_restated(g, flags, s) for g in groups]
     if flags and groups:
         return _low(evidence)
 
