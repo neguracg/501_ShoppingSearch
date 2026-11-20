@@ -107,10 +107,20 @@ def _source_text(pack_offers: list[Offer]) -> str:
 
 def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: str) -> tuple[list[Assumption], str | None]:
     """basis=数え語 で (a)(b) に入らない候補（others）の換算の仮定。(仮定の一覧, ①の根拠の説明 or None)。
-    price が無い候補は対象外。量が読めない候補（none・low）は 1 点 = 1<数え語>。"""
+    price が無い候補は対象外。量が読めない候補（none）は 1 点 = 1<数え語>、low は題名に読めた個数の読みを 1 つずつ仮定にする。
+    1袋の中身がただ 1 通り（18本）に決まっている時、その数え語（本）と同じ数え語の総数・読みは、必ず「1袋が18本なら」で換算する
+    （「1本が1袋なら」と 1 対 1 に置かない。偽の激安に見える）。「1<数え語>が1袋なら」は数え語が中身の数え語と違う時（セット・個）だけ。"""
     base = unique_content(pack_offers, counter) if pack_offers else None
     out: list[Assumption] = []
     used_base = False
+
+    def by_base(o: Offer, total: float, unit: str, keep: bool, suffix: str = "") -> Assumption | None:
+        nonlocal used_base
+        if base is None or unit != base[1]:
+            return None
+        used_base = True
+        return Assumption(o, total / base[0], f"1{counter}が{base[0]}{base[1]}なら（根拠: {_source_text(pack_offers)}）{suffix}", keep=keep)
+
     for o in others:
         if o.price is None:
             continue
@@ -118,16 +128,14 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
         if q is not None and q.caption_candidate is not None:
             continue                       # 説明欄に見出し付きの数量がある（印と根拠だけの形。CAPTION_FILL_UNIT_PRICE=False）候補は caveats で案内済み
         if q is not None and q.confidence == "high" and q.count_total:
-            if base is not None and q.count_unit == base[1] and q.count_total % base[0] == 0:
-                note = f"（根拠: {_source_text(pack_offers)}）"
-                out.append(Assumption(o, q.count_total / base[0], f"1{counter}が{base[0]}{base[1]}なら{note}", keep=True))
-                used_base = True
-            else:
-                out.append(Assumption(o, float(q.count_total), f"この商品の1{q.count_unit}が1{counter}なら", keep=True))
+            out.append(by_base(o, q.count_total, q.count_unit, True)
+                       or Assumption(o, float(q.count_total), f"この商品の1{q.count_unit}が1{counter}なら", keep=True))
         else:
             readings = count_readings(o.item_name) if q is not None and q.confidence == "low" else []
             if readings:       # low（題名に数が読めるが食い違う）: 読めた個数の読みを 1 つずつ仮定にする（どれかが安くなり得れば出す。Q20）
-                out += [Assumption(o, float(n), f"この商品が{n}{w}で、1{w}が1{counter}なら（題名に食い違う数がある）") for n, w in readings]
+                for n, w in readings:
+                    out.append(by_base(o, n, w, False, "（題名に食い違う数がある）")
+                               or Assumption(o, float(n), f"この商品が{n}{w}で、1{w}が1{counter}なら（題名に食い違う数がある）"))
             else:
                 out.append(Assumption(o, 1.0, f"この商品1点が1{counter}なら"))
     why = (f"1{counter}＝{base[0]}{base[1]}は候補 {len(pack_offers)}件の商品名から（{_source_text(pack_offers)}）"

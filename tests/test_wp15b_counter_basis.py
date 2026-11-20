@@ -224,3 +224,29 @@ def test_no_cross_unit_assumption_without_a_desired_quantity_or_with_one_group()
     assert compare(kairo()).to_check == []
     only_mai = compare([o for o in kairo() if o.mall_item_code.startswith("m")], desired_quantity=50)
     assert not any("counter_assumed" in t.plan.reasons for t in only_mai.to_check)
+
+
+def test_a_count_in_the_content_unit_is_never_put_one_to_one_with_a_bag():
+    """formira88:10754141 型（題名 low・読み 36本）: 1袋＝18本の基準がある時、本の読みは『1本が1袋』でなく『1袋が18本なら』で 2袋に換算する
+    （実 API の再実行で『36本で、1本が1袋なら 36袋相当・940円』の偽の激安が出た欠陥）。"""
+    formira = off("formira", "文化たきつけ 36本 2個パック 薪用着火剤 焚き火", 500)
+    assert formira.quantity.confidence == "low"
+    r = compare(base_set() + [formira], basis="袋", desired_quantity=30)
+    t = by(r, "formira")
+    assert t.plan.n == 15 and t.plan.order_quantity == 30 and t.plan.order_total == 500 * 15
+    text = t.conditions[0]["text"]
+    assert text.startswith("1袋が18本なら（根拠: cololo の商品名）（題名に食い違う数がある）") and "1本が1袋" not in text
+    # 数え語が中身の数え語と違う読み（2個）だけは『1個が1袋なら』のまま
+    assert not any("1本が1袋" in x.conditions[0]["text"] for x in r.to_check)
+
+
+def test_a_readable_count_in_the_content_unit_that_does_not_divide_is_still_converted_by_the_base():
+    r = compare(base_set() + [off("n20", "着火剤 20本", 100)], basis="袋", desired_quantity=30)
+    t = by(r, "n20")
+    assert t.conditions[0]["text"].startswith("1袋が18本なら（根拠: cololo の商品名）") and "1本が1袋" not in t.conditions[0]["text"]
+    assert t.plan.order_quantity >= 30 and t.plan.n == 27                   # 20本 ≒ 1.11袋 × 27個
+
+
+def test_without_a_unique_base_the_one_to_one_assumption_stays():
+    r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), off("p18", P18, 179)], basis="袋", desired_quantity=30)
+    assert by(r, "p18").conditions[0]["text"].startswith("この商品の1本が1袋なら")
