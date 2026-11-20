@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from .models import Offer
+from .quantity import count_readings
 
 
 @dataclass
@@ -74,9 +75,22 @@ def choose_base(pack_offers: list[Offer], counter: str, desired: float | None, c
     return min(by, key=lambda k: (-len(by[k]), cheapest(by[k]), k))
 
 
-def differs_text(o: Offer, counter: str) -> str:
-    """食い違う 1袋の中身の前置き（to_check の条件文）。"""
-    return f"1{counter}の中身が違う（{content_text(content_key(pack_of(o, counter)))}）。"
+def base_count(pack_offers: list[Offer], counter: str, base: tuple[int, str]) -> int:
+    """基準の 1袋の中身を持つ (b) の候補の数。"""
+    return sum(1 for o in pack_offers if content_key(pack_of(o, counter)) == base)
+
+
+def differs_text(o: Offer, counter: str, base: tuple[int, str], n_base: int) -> str:
+    """食い違う 1袋の中身の前置き（to_check の条件文）。基準とその件数も書く（基準は多数決で、利用者の欲しい中身とは限らない）。"""
+    return (f"1{counter}の中身が違う（{content_text(content_key(pack_of(o, counter)))}）。"
+            f"基準＝{content_text(base)}（{n_base}件の商品名から）。")
+
+
+def base_caveat(counter: str, base: tuple[int, str], n_base: int, n_pack: int) -> str:
+    """1袋の中身の基準（caveats）。"""
+    return (f"包装の数（商品名の「18本入 2袋セット」の 2袋）を使って {counter} あたりを出した候補: {n_pack}件。"
+            f"1{counter}の中身の基準＝{content_text(base)}（{n_base}件の商品名から）で、基準と一致する候補だけ確認済み、"
+            "食い違う候補は pack_content_differs。基準は候補の多数決で決まり、利用者が欲しい中身とは限らない")
 
 
 def unique_content(pack_offers: list[Offer], counter: str) -> tuple[int, str] | None:
@@ -111,7 +125,11 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
             else:
                 out.append(Assumption(o, float(q.count_total), f"この商品の1{q.count_unit}が1{counter}なら", keep=True))
         else:
-            out.append(Assumption(o, 1.0, f"この商品1点が1{counter}なら"))
+            readings = count_readings(o.item_name) if q is not None and q.confidence == "low" else []
+            if readings:       # low（題名に数が読めるが食い違う）: 読めた個数の読みを 1 つずつ仮定にする（どれかが安くなり得れば出す。Q20）
+                out += [Assumption(o, float(n), f"この商品が{n}{w}で、1{w}が1{counter}なら（題名に食い違う数がある）") for n, w in readings]
+            else:
+                out.append(Assumption(o, 1.0, f"この商品1点が1{counter}なら"))
     why = (f"1{counter}＝{base[0]}{base[1]}は候補 {len(pack_offers)}件の商品名から（{_source_text(pack_offers)}）"
            if used_base and base is not None else None)
     return out, why
@@ -134,5 +152,5 @@ def caveat(assumptions: list[Assumption], counter: str, why: str | None) -> str 
     if not assumptions:
         return None
     base = (f"。{why}" if why else "")
-    return (f"数え語の換算を仮定して to_check に出した候補: {len(assumptions)}件"
+    return (f"数え語の換算を仮定して to_check に出した候補: {len({id(a.offer) for a in assumptions})}件"
             f"（確認済みではない。最安には選ばず、各候補の条件文の仮定が正しければ比べられる）{base}")

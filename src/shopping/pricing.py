@@ -454,12 +454,13 @@ def add_assumed_to_check(to_check: list[ToCheck], best: OrderPlan | None, assump
     keep でない候補（basis が個で主グループと違う数え語。basis=数え語 で量が読めない候補。Q19・Q20）は確認済みの最安 best より安くなり得る時だけ出す。
     cheapest_order・order_plans には入れない。"""
     by_unit = desired_max is not None
-    extra: list[ToCheck] = []
+    key = _plan_order(by_unit)
+    per_offer: dict[int, list[OrderPlan]] = {}            # 1 つの候補に仮定が複数ある時（low の題名の読みが複数）は、出せる案のうち最安の 1 つだけ
     for a in assumptions:
         plan, _ = _order_plan(a.offer, a.amount, mult, desired, desired_max, count_unit, assumed=a.text, label=label)
         if plan is not None and (a.keep or _cheaper(plan, best, by_unit)):
-            extra.append(ToCheck(plan, _conditions(plan, best, by_unit)))
-    key = _plan_order(by_unit)
+            per_offer.setdefault(id(a.offer), []).append(plan)
+    extra = [ToCheck(p, _conditions(p, best, by_unit)) for p in (min(ps, key=key) for ps in per_offer.values())]
     return sorted(to_check + extra, key=lambda t: key(t.plan))
 
 
@@ -603,10 +604,11 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     pack_notes: dict[int, dict] = {}
     base = counter_basis.choose_base(pack_offers, counter, desired_quantity,
                                      lambda o: not unconfirmed_reasons(o)) if counter else None
+    n_base = counter_basis.base_count(pack_offers, counter, base) if base else 0
     for o in pack_offers:                               # 1袋の中身が基準と食い違う候補は確認済みにしない（pack_content_differs）
         if counter_basis.content_key(counter_basis.pack_of(o, counter)) != base:
             o.pack_content_differs = True
-            pack_notes[id(o)] = {"pack_content_differs": counter_basis.differs_text(o, counter)}
+            pack_notes[id(o)] = {"pack_content_differs": counter_basis.differs_text(o, counter, base, n_base)}
     assumptions: list[counter_basis.Assumption] = []
     assume_why: str | None = None
     if counter and desired_quantity is not None:
@@ -624,9 +626,8 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
                        "確定できないため、単位価格の最安の判定から外した）")
     other_unit_slot = len(caveats)                       # 件数は to_check が決まってから入れる（換算の仮定つきで出した候補は数えない）
     caveats.append("")
-    if pack_offers:
-        caveats.append(f"包装の数（商品名の「18本入 2袋セット」の 2袋）を使って {counter} あたりを出した候補: {len(pack_offers)}件"
-                       "（1袋の中身が基準と一致する候補だけ確認済み。食い違う候補は pack_content_differs）")
+    if pack_offers and base:
+        caveats.append(counter_basis.base_caveat(counter, base, n_base, len(pack_offers)))
     if outliers:
         caveats.append(f"単価が他の候補の 1/{OUTLIER_RATIO} 未満で、数量の読み違いの疑いがある候補: "
                        f"{len(outliers)}件（単位価格の最安・必要数量を満たす最安から外しています）")
@@ -717,7 +718,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
         del caveats[other_unit_slot]
     dropped = [a.offer for a in assumptions if not a.keep and id(a.offer) not in placed]
     if dropped:                                  # 量が読めず、1点＝1数え語 の仮定でも確認済みの最安より安くなり得ない候補（unknown_offers に残す。WP15 段B・Q20）
-        caveats.append(f"数量が商品名から読めず、この商品1点が1{counter}なら と仮定しても確認済みの最安より安くなり得ない候補: "
+        caveats.append(f"数量が商品名から読めず、仮定（この商品1点が1{counter}なら・題名の個数の読みが1{counter}なら）でも確認済みの最安より安くなり得ない候補: "
                        f"{len(dropped)}件（to_check には出さず unknown_offers に残した）")
     for items, why in ((assumptions, assume_why), (cross_unit, None)):
         text = counter_basis.caveat([a for a in items if id(a.offer) in placed], counter or (only.count_unit if only else ""), why)

@@ -886,3 +886,20 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
         measure_total=None if amount is None else round(total * amount, 9),
         confidence="high", evidence=evidence, content_amounts=amounts,
         packs=read_packs(_norm(text), total, _counter_table(), PACK_WORDS))     # 包装の数（WP15 段B。総数は変えない）
+
+
+def count_readings(text: str) -> list[tuple[int, str]]:
+    """題名から読める個数の候補（群ごとの総数と数え語。重複なし・書かれた順）。parse_quantity が low（題名に数が読めるが食い違う）に
+    した題名の「どの数が本当の個数かもしれないか」を呼び出し側（counter_basis）が仮定に使うための入口。総数や confidence は決めない
+    （決めるのは parse_quantity だけ。ここの結果を high の数量として使わない）。"""
+    s = _normalize(text)
+    toks = _tokens(s, [], [], [], [])
+    out: list[tuple[int, str]] = []
+    for g in _group(s, toks, []):
+        if not g.factors:
+            continue
+        total = _total(g)
+        word = next((t.word for t in g.toks if t.kind == "count"), "個")
+        if 0 < total <= MAX_PLAUSIBLE_COUNT and (total, word) not in out:
+            out.append((total, word))
+    return out

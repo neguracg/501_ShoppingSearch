@@ -75,15 +75,22 @@ def test_unreadable_quantity_candidates_are_listed_only_when_they_could_be_cheap
     出さない候補は unknown_offers に残り、caveats に件数と理由が出る。"""
     low = off("mf60", MAYFAIR60, 9710, ship="separate")                    # mayfair-17:10014877。『マッチ1本で』の 1 で low
     assert low.quantity.confidence == "low"
+    # low は題名に読めた個数の読み（60セット）を仮定にする。1箱＝60袋なら 1個 9,710円で確認済みの 13,200円より安い→条件つきで出る（R1）
     r = compare(base_set() + [low], basis="袋", desired_quantity=30)
-    assert "mf60" not in {t.plan.offer.mall_item_code for t in r.to_check}      # 30点 = 291,300 円は 13,200 円より高い
+    t = by(r, "mf60")
+    assert t.plan.n == 1 and t.plan.order_quantity == 60 and t.plan.reasons == ["counter_assumed", "shipping_separate"]
+    assert t.conditions[0]["text"].startswith("この商品が60セットで、1セットが1袋なら（題名に食い違う数がある）、送料別。")
     assert "mf60" in [o.mall_item_code for o in r.unknown_offers]
-    assert any("確認済みの最安より安くなり得ない候補: 1件" in c for c in r.caveats)
-    cheap = off("lowcheap", "文化たきつけ マッチ1本で着火 18本入 2セット 24本", 100, ship="separate")
-    assert cheap.quantity.confidence != "high"
-    t = by(compare(base_set() + [cheap], basis="袋", desired_quantity=30), "lowcheap")
-    assert t.plan.n == 30 and t.conditions[0]["text"].startswith("この商品1点が1袋なら、送料別。")
-    assert t.plan.reasons == ["counter_assumed", "shipping_separate"]
+    # 高すぎて安くなり得ない low は出さない
+    r2 = compare(base_set() + [off("lowhigh", MAYFAIR60, 99999, ship="separate")], basis="袋", desired_quantity=30)
+    assert "lowhigh" not in {x.plan.offer.mall_item_code for x in r2.to_check}
+    assert any("確認済みの最安より安くなり得ない候補: 1件" in c for c in r2.caveats)
+    # 読みが複数ある low は、安くなり得る読みのうち最安の注文額の 1 つだけを出す
+    multi = off("multi", "着火剤 12ロール 24ロール", 300)
+    assert multi.quantity.confidence == "low"
+    rm = compare(base_set() + [multi], basis="袋", desired_quantity=30)
+    tm = [x for x in rm.to_check if x.plan.offer.mall_item_code == "multi"]
+    assert len(tm) == 1 and tm[0].plan.n == 2 and "24ロールで" in tm[0].conditions[0]["text"]
     # 確認済みが 1 件も無い時は全部出す（Q16）
     only_low = compare([low, off("yama", "富士屋 文化たきつけ [着火剤]", 168, ship="separate")], basis="袋", desired_quantity=30)
     assert {t.plan.offer.mall_item_code for t in only_low.to_check} == {"mf60", "yama"}
@@ -119,6 +126,14 @@ def test_pack_content_differs_is_unconfirmed_and_kept_in_order_plans_and_to_chec
     c9d = next(o for o in d["groups"][0]["offers"] if o["item_code"] == "c9")
     assert c9d["unit_price"] is None and c9d["provisional_unit_price"] == pytest.approx(150.0)
     assert c9d["unit_price_unconfirmed_reasons"] == ["pack_content_differs"]
+
+
+def test_the_base_and_its_count_are_in_the_caveats_and_the_differs_sentence():
+    offers = [off("a18", COLOLO, 880), off("b18", "富士屋 着火剤 18本入×2袋セット", 900), off("c9", "着火剤 9本入 2袋セット", 300)]
+    r = compare(offers, basis="袋", desired_quantity=30)
+    cav = next(c for c in r.caveats if "中身の基準" in c)
+    assert "基準＝18本入（2件の商品名から）" in cav and "利用者が欲しい中身とは限らない" in cav
+    assert by(r, "c9").conditions[0]["text"].startswith("1袋の中身が違う（9本入）。基準＝18本入（2件の商品名から）。")
 
 
 def test_the_base_is_the_most_common_content_and_ties_go_to_the_cheaper_confirmed():
