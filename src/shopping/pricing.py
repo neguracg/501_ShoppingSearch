@@ -557,9 +557,9 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             main=only.count_unit, others="・".join(f"{g.count_unit} {len(g.offers)}件" for g in groups if g is not only)))
         if desired_quantity is not None:
             rng = format_amount(desired_quantity) + (f"〜{format_amount(desired_quantity_max)}" if desired_quantity_max is not None else "")
-            other = next(g.count_unit for g in groups if g is not only)
-            caveats.append(f"希望量 {rng} は主グループの数え方［{only.count_unit}］として扱いました（他のグループにも同じ数を当てた結果は groups[] の中）。"
-                           f"{other}で数えるなら basis={other} を指定してください")
+            others = [g.count_unit for g in groups if g is not only and g.count_unit != "個"]      # basis の「個」は全数え語の意味なので勧めない
+            hint = f"{others[0]}で数えるなら basis={others[0]} を指定してください" if others else "別の数え方なら basis に数え語を指定してください"
+            caveats.append(f"希望量 {rng} は主グループの数え方［{only.count_unit}］として扱いました（他のグループにも同じ数を当てた結果は groups[] の中）。{hint}")
     meeting = only.cheapest_order.offer if only is not None and only.cheapest_order is not None else None
 
     caveats.append(SPEC_CAVEAT)
