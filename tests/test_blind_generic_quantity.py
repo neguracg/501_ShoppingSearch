@@ -2103,7 +2103,7 @@ def test_wp14_order_plan_dict_keys_and_numbers():
     assert d["confirmed"] is True and list(d["unconfirmed_reasons"]) == []
     assert d["quantity_source"] == "title"
     assert d["price_varies"] is False
-    # WP15 Q23: 確認済みの単価は素の値。仮の値は null。送料込みなので payment_total=order_total・種類 payment_total
+    # WP15 Q23: 確認済みの単価は素の値。仮の値は null。確認済み（送料込み・理由なし）なので payment_total=order_total・種類 payment_total
     assert d["unit_price_status"] == "confirmed" and list(d["unit_price_unconfirmed_reasons"]) == []
     assert d["provisional_order_unit_price"] is None
     assert d["payment_total"] == 1000 and d["order_total_kind"] == "payment_total"
@@ -2154,6 +2154,8 @@ def test_wp14_unconfirmed_reason_price_varies_and_dict_fields():
     assert p["price_varies"] is True and p["price_min"] == 1500 and p["price_max"] == 1720
     assert p["price"] == 1500 and p["order_total"] == 1500 and p["n"] == 1
     assert p["confirmed"] is False and "price_varies" in p["unconfirmed_reasons"]
+    # 30b6174 Q23: 送料込みだが確認済みでない → 支払総額ではない（payment_total=null・unconfirmed_total）
+    assert p["payment_total"] is None and p["order_total_kind"] == "unconfirmed_total"
     # WP15 Q21・Q23: 選択肢で価格が変わる案の単価は未確定。素の値は null、計算値（1500÷60=25.0）は仮の値
     assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(25.0, abs=0.01)
     assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["price_varies"]
@@ -2168,6 +2170,7 @@ def test_wp14_unconfirmed_reason_caption_fill_and_evidence():
     assert p["caption_evidence"] and "24" in p["caption_evidence"]
     assert p["confirmed"] is False and "quantity_from_caption" in p["unconfirmed_reasons"]
     assert p["n"] == 2 and p["order_total"] == 4800
+    assert p["payment_total"] is None and p["order_total_kind"] == "unconfirmed_total"  # 30b6174 Q23
     # WP15 Q21・Q23: 説明欄から補った数量の単価は未確定（4800÷48本=100）
     assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(100.0, abs=0.01)
     assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["quantity_from_caption"]
@@ -2179,6 +2182,7 @@ def test_wp14_unconfirmed_reason_caption_conflict():
     r = _compare([cap], basis="本", desired_quantity=24)
     (p,) = [_pd(x) for x in r.order_plans]
     assert p["confirmed"] is False and "caption_conflict" in p["unconfirmed_reasons"]
+    assert p["payment_total"] is None and p["order_total_kind"] == "unconfirmed_total"  # 30b6174 Q23
     # WP15 Q21・Q23: 食い違いの案の単価は未確定（2400÷24本=100。題名の数量で計算する内部の値は不変）
     assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(100.0, abs=0.01)
     assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["caption_conflict"]

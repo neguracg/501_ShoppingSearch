@@ -14,9 +14,10 @@ mcp_server.build_server の tools/list（in-process）。数量の読み取り�
   Q22  quantity.confidence は caption_conflict の候補だけ "conflict"。title_confidence に題名の判定。
        それ以外は title_confidence == confidence。
   Q23  注文案: order_unit_price / provisional_order_unit_price・unit_price_status・unit_price_unconfirmed_reasons
-       （単価の理由だけ。送料を含まない）・payment_total（送料込み＝included の時だけ order_total と同値。
-       送料別・不明は null）・order_total_kind（payment_total / item_subtotal）。既存の confirmed・
-       unconfirmed_reasons（送料を含む全理由）は不変。
+       （単価の理由だけ。送料を含まない）・payment_total（確認済みの案＝confirmed が true の時だけ order_total と
+       同値。他は null）・order_total_kind（確認済み=payment_total／送料込みだが単価未確定=unconfirmed_total／
+       送料別・不明=item_subtotal。単価も未確定でも item_subtotal）。既存の confirmed・unconfirmed_reasons
+       （送料を含む全理由）は不変。（30b6174 で改訂）
   AC17 出力 JSON の全枠の走査。 AC18 注文額の種類。
   不変 並び・外れ値の判定・cheapest_*・to_check の閾値は内部の計算値のまま。
   AC-W9 tools/list の compare_offers に desired_quantity_max があり、説明は 2000 字以内。
@@ -125,9 +126,12 @@ def _check_plan_dict(path, d):
         assert _num(d["order_unit_price"]) and d["provisional_order_unit_price"] is None and rs == [], path
     if rs:
         assert d["order_unit_price"] is None, (path, rs)
-    # Q23: 注文額の種類（送料込み＝shipping_status が included の時だけ支払総額）
-    if d["shipping_status"] == "included":
+    # Q23（30b6174）: 注文額の種類。支払総額は確認済みの案（confirmed=true）だけ。送料込みで単価未確定は
+    # unconfirmed_total、送料別・不明は（単価が未確定でも）item_subtotal。
+    if d["confirmed"] is True:
         assert d["order_total_kind"] == "payment_total" and d["payment_total"] == d["order_total"], path
+    elif d["shipping_status"] == "included":
+        assert d["order_total_kind"] == "unconfirmed_total" and d["payment_total"] is None, path
     else:
         assert d["order_total_kind"] == "item_subtotal" and d["payment_total"] is None, (path, d["shipping_status"])
 
@@ -358,6 +362,8 @@ def test_q23_unconfirmed_plan_has_provisional_order_unit_price(mix, name, reason
     assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == [reason]
     # 既存の confirmed・unconfirmed_reasons（全理由）は不変
     assert p["confirmed"] is False and reason in p["unconfirmed_reasons"]
+    # 30b6174: 送料込みだが単価が未確定 → 支払総額ではない（payment_total=null・unconfirmed_total）。order_total は不変
+    assert p["payment_total"] is None and p["order_total_kind"] == "unconfirmed_total"
 
 
 def test_q23_confirmed_plan_and_cheapest_order(mix):
@@ -402,7 +408,8 @@ def test_q23_to_check_entries_carry_new_keys_and_conditions(mix):
 )
 def test_ac18_order_total_kind(ship, kind, payment):
     # AC18・Q23: 天然水 2L×6本 4200円（12000ml）・desired=10000ml → n=1・order_total=4200。
-    # 送料込み（included）だけ payment_total=4200・kind=payment_total。送料別・不明は payment_total=null・item_subtotal。
+    # 確認済み（送料込み included で単価の未確定理由なし）だけ payment_total=4200・kind=payment_total。
+    # 送料別・不明は payment_total=null・item_subtotal（単価は確定のまま）。
     c, _ = _cmp([_o("a", "天然水 2L×6本 A店", 4200, ship=ship)], basis="ml", desired_quantity=10000)
     (p,) = c["order_plans"]
     assert p["shipping_status"] == ship and p["n"] == 1 and p["order_total"] == 4200
@@ -444,6 +451,45 @@ def test_q23_combined_reasons_threshold_unchanged_and_masked_unit():
     assert set(t["unconfirmed_reasons"]) >= {"price_varies", "shipping_separate"}
     assert t["order_unit_price"] is None and t["provisional_order_unit_price"] == pytest.approx(25.0, abs=0.01)
     assert t["payment_total"] is None and t["order_total_kind"] == "item_subtotal"
+
+
+@pytest.mark.parametrize(
+    "ship,kind",
+    [("included", "unconfirmed_total"), ("separate", "item_subtotal"), ("unknown", "item_subtotal")],
+)
+def test_ac18_price_varies_total_kind_by_shipping(ship, kind):
+    # AC18・Q23（30b6174・WP15 レビュー B1）: 価格幅あり（1500〜1720円。表示価格 1500）の 60枚・desired=60 → n=1・
+    # order_total=1500。確認済みでないので payment_total は常に null（最小の選択肢の価格 1500 を支払総額と読ませない）。
+    # 送料込みだけ unconfirmed_total（注文額（仮））、送料別・不明は単価が未確定でも item_subtotal。
+    c, r = _cmp([_o("v", V_NAME, 1500, ship=ship, price_min=1500, price_max=1720)], basis="個", desired_quantity=60)
+    (p,) = c["order_plans"]
+    assert p["order_total"] == 1500 and p["shipping_status"] == ship
+    assert p["confirmed"] is False and "price_varies" in p["unconfirmed_reasons"]
+    assert p["payment_total"] is None and p["order_total_kind"] == kind
+    assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["price_varies"]
+    _scan(r)
+
+
+@pytest.mark.parametrize("reason_offer", ["caption_conflict", "quantity_from_caption", "unit_price_outlier"])
+def test_ac18_other_unit_reasons_with_included_shipping_are_unconfirmed_total(mix, reason_offer):
+    # AC18・Q23: price_varies 以外の単価の理由でも、送料込みなら unconfirmed_total・payment_total=null
+    c, _ = mix
+    name = {"caption_conflict": X_NAME, "quantity_from_caption": CAP_NAME, "unit_price_outlier": O_NAME}[reason_offer]
+    p = _plan(c, name)
+    assert p["shipping_status"] == "included"
+    assert p["payment_total"] is None and p["order_total_kind"] == "unconfirmed_total"
+
+
+def test_ac18_only_confirmed_plans_have_payment_total(mix):
+    # AC18: payment_total が値を持つのは confirmed=true の案だけ（値は order_total と同値）。cheapest_order は常に値。
+    c, _ = mix
+    for p in c["order_plans"]:
+        if p["confirmed"]:
+            assert p["payment_total"] == p["order_total"] and p["order_total_kind"] == "payment_total"
+        else:
+            assert p["payment_total"] is None and p["order_total_kind"] != "payment_total"
+    co = c["cheapest_order"]
+    assert co["payment_total"] == co["order_total"] and co["order_total_kind"] == "payment_total"
 
 
 def test_q23_range_order_uses_internal_value_and_cheapest_order_is_confirmed():
@@ -608,6 +654,7 @@ def test_mcp_instructions_carry_provisional_and_subtotal_sentences():
     # 支払総額と呼ばない（支払総額は payment_total がある時だけ）。
     from shopping.mcp_server import INSTRUCTIONS
 
+    # （30b6174）item_subtotal・unconfirmed_total の金額を支払総額と呼ばない。支払総額は payment_total がある時だけ。
     for ph in ("provisional_unit_price", "unit_price_unconfirmed_reasons", "order_total_kind", "item_subtotal",
-               "payment_total"):
+               "unconfirmed_total", "payment_total"):
         assert ph in INSTRUCTIONS, ph
