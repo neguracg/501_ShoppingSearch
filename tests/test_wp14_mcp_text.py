@@ -21,17 +21,21 @@ def tools():
     return asyncio.run(asyncio.wait_for(go(), timeout=30))
 
 
-def test_order_guide_phrases_reach_instructions_and_compare_offers():
+def test_order_guide_phrases_reach_instructions_and_the_pointer_reaches_compare_offers():
     t = tools()
     for ph in PHRASES:
-        assert ph in _ORDER_GUIDE, ph
-        assert ph in INSTRUCTIONS and ph in t["compare_offers"].description, ph
+        assert ph in _ORDER_GUIDE and ph in INSTRUCTIONS, ph
+    d = t["compare_offers"].description
+    assert mcp_server._ORDER_POINTER in d
+    for ph in ("cheapest_order", "to_check", "price_varies", "送料無料ラインを仮定しない", "INSTRUCTIONS"):
+        assert ph in d, ph
+    assert len(d) <= 2000
 
 
-def test_search_guide_reaches_search_and_compare_and_instructions():
+def test_search_guide_reaches_search_products_and_instructions():
     t = tools()
     assert "枚数を外した語で sort=standard と sort=+itemPrice の2回" in _SEARCH_GUIDE
-    for text in (INSTRUCTIONS, t["compare_offers"].description, t["search_products"].description):
+    for text in (INSTRUCTIONS, t["search_products"].description):     # compare_offers は説明が 2000 字を超えるので INSTRUCTIONS に任せる
         assert _SEARCH_GUIDE in text
 
 

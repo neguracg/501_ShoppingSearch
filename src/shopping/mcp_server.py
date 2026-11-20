@@ -37,6 +37,11 @@ _ORDER_GUIDE = (
     "quantity.source が caption の候補は題名から数量が読めず説明欄から補った数量で、確認済みではない（caption_evidence が根拠）。"
     "quantity.caption_conflict が true の候補は題名の数量と説明欄が食い違うので商品ページで確認を促す。"
 )
+# compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
+_ORDER_POINTER = (
+    "希望量の注文の比べ方・回答は INSTRUCTIONS の【希望量の注文を比べる時】に従う"
+    "（回答は cheapest_order・to_check・caveats の3つ。price_varies を断定せず、送料無料ラインを仮定しない）。"
+)
 # 検索の仕方の指示（WP14 W6）
 _SEARCH_GUIDE = (
     "【検索語】検索語に枚数・個数を必須にしない（他の枚数・複数注文の候補を落とす）。枚数を外した語で sort=standard と sort=+itemPrice の2回"
@@ -164,11 +169,11 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "商品名で判断し、必要なら利用者に確認する。"
             "basis は比べる単位: 省略で自動（候補の過半が同じ内容量の次元ならその基準単位 ml/g/m/W/mAh/Wh、そうでなければ『個』）。"
             "『個』（1個あたり）や ml・g・m・W・mAh・Wh（L・kg などの別名も可）を指定できる。"
-            "basis には数え語（本・袋・枚・ロールなど）も指定でき、その数え語の候補だけで比べる（『1本あたり』）。"
+            "basis には数え語（本・袋・枚・ロールなど）も指定でき、その数え語の候補だけで比べる。"
             "desired_quantity は希望量の下限で basis の単位で解釈する（例: basis=ml なら 18000 は 18L）。desired_quantity_max は上限（任意）。"
-            "希望量を指定すると、同じ商品を n 個注文する組み合わせを order_plans（注文額の安い順）・cheapest_order・to_check に返す。"
-            + _ORDER_GUIDE + _SEARCH_GUIDE +
-            "結果は groups（basis の次元が同じ候補。単位価格の安い順。basis が個の時は count_unit ごとに分かれ、グループごとの最安・注文は groups[] の中）・"
+            "希望量を指定すると、同じ商品の n 個注文の組み合わせを order_plans・cheapest_order・to_check に返す。"
+            + _ORDER_POINTER +
+            "結果は groups（basis の次元が同じ候補。単位価格の安い順。basis が個の時は count_unit ごと。グループごとの最安・注文は groups[] の中）・"
             "unknown_offers（basis の量が読めず単価を出せない候補）・"
             "cheapest_price / cheapest_unit_price / cheapest_total / cheapest_for_quantity・order_plans / cheapest_order / to_check・caveats・notes。"
             "cheapest_* が null の理由は必ず caveats に書いてあるので、利用者へそのまま伝えること。"
