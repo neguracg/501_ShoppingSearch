@@ -150,12 +150,15 @@ def test_order_plans_follow_the_same_split_and_total_kind():
         else:
             assert p["order_unit_price"] is not None and p["provisional_order_unit_price"] is None
             assert p["unit_price_status"] == "confirmed"
-        if p["shipping_status"] == "included":
+        if p["confirmed"]:                                            # 確認済みの案だけ支払総額（レビュー B1）
             assert p["order_total_kind"] == "payment_total" and p["payment_total"] == p["order_total"]
+        elif p["shipping_status"] == "included":
+            assert p["order_total_kind"] == "unconfirmed_total" and p["payment_total"] is None
         else:
             assert p["order_total_kind"] == "item_subtotal" and p["payment_total"] is None
     v = by_code(d["order_plans"], "varies")
     assert v["order_unit_price"] is None and v["provisional_order_unit_price"] == 25.0
+    assert v["order_total_kind"] == "unconfirmed_total" and v["payment_total"] is None and v["order_total"] == 1500   # 価格幅の最小の価格×n を支払総額にしない
     s = by_code(d["order_plans"], "sep")                          # 送料別だけの案: 単価はそのまま・注文額は商品小計
     assert s["order_unit_price"] is not None and s["order_total_kind"] == "item_subtotal"
     assert s["unconfirmed_reasons"] == ["shipping_separate"] and s["unit_price_unconfirmed_reasons"] == []
@@ -220,6 +223,12 @@ def test_unit_price_text_marks_provisional_with_reason():
     assert unit_price_text(by["none"]) is None
 
 
+def test_unit_price_text_has_no_leading_space_without_label():
+    assert unit_price_text({"unit_price": 5.0}) == "5.00円"
+    assert unit_price_text({"unit_price": None, "provisional_unit_price": 5.0, "unit_price_unconfirmed_reasons": ["price_varies"]}) == "仮 5.00円（選択肢で価格が変わる）"
+    assert unit_price_text({"unit_price": None, "provisional_unit_price": None}) is None
+
+
 def test_web_and_cli_show_provisional_and_keep_conflict_quantity_visible():
     offers = kairo()
     compare(offers, basis="個")
@@ -234,10 +243,11 @@ def test_web_and_cli_show_provisional_and_keep_conflict_quantity_visible():
 def test_cli_plan_line_says_item_subtotal_for_separate_shipping():
     d = service._comparison_to_dict(compare(kairo(), basis="個", desired_quantity=50, desired_quantity_max=100))
     sep = cli._plan_line(by_code(d["order_plans"], "sep"))
-    assert "商品小計（送料別）" in sep and "注文額" not in sep
+    assert "商品小計（送料別・不明）" in sep and "注文額" not in sep
     var = cli._plan_line(by_code(d["order_plans"], "varies"))
-    assert "仮" in var and "注文額" in var
-    assert "注文額" in cli._plan_line(by_code(d["order_plans"], "ok60"))
+    assert "注文額（仮） 1,500円" in var and "単価 仮" in var
+    ok = cli._plan_line(by_code(d["order_plans"], "ok60"))
+    assert "注文額 1,500円" in ok and "（仮）" not in ok and "商品小計" not in ok
 
 
 def kairo_adapter():
@@ -266,7 +276,7 @@ def test_cli_prints_item_subtotal_and_provisional(capsys, monkeypatch):
     monkeypatch.setattr(service, "make_adapter", lambda *a, **k: kairo_adapter())
     assert cli.run(["compare", "貼るカイロ", "--basis", "個", "--desired-quantity", "50", "--desired-quantity-max", "100"]) == 0
     out = capsys.readouterr().out
-    assert "商品小計（送料別）" in out
+    assert "商品小計（送料別・不明）" in out
     assert "仮 1個あたり 25.00円（選択肢で価格が変わる）" in out
     assert "240枚" not in out.split("希望量")[1]      # 範囲外の案は注文案に出ない
 
@@ -292,7 +302,8 @@ def test_compare_offers_definition_has_range_param_and_text_within_2000():
 
 def test_instructions_carry_the_provisional_and_item_subtotal_sentences():
     from shopping.mcp_server import INSTRUCTIONS, _ORDER_GUIDE
-    for ph in ("provisional_unit_price", "unit_price_unconfirmed_reasons", "item_subtotal", "payment_total"):
+    for ph in ("provisional_unit_price", "unit_price_unconfirmed_reasons", "item_subtotal", "unconfirmed_total", "payment_total",
+               "groups・unknown_offers は件数で切らず全件返す"):
         assert ph in _ORDER_GUIDE and ph in INSTRUCTIONS
 
 
@@ -314,3 +325,5 @@ def test_range_call_through_public_mcp_returns_only_orders_within_range():
     by = {p["item_code"]: p for p in d["comparison"]["order_plans"]}
     assert by["varies"]["order_unit_price"] is None and by["varies"]["provisional_order_unit_price"] == 25.0
     assert by["sep"]["order_total_kind"] == "item_subtotal" and by["sep"]["payment_total"] is None
+    assert by["varies"]["order_total_kind"] == "unconfirmed_total" and by["varies"]["payment_total"] is None
+    assert by["ok60"]["order_total_kind"] == "payment_total" and by["ok60"]["payment_total"] == 1500

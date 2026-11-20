@@ -83,11 +83,12 @@ def unit_price_text(d: dict, key: str = "unit_price") -> str | None:
     未確定は「仮 1個あたり 25.00円（選択肢で価格が変わる）」、単価なしは None。key は候補なら unit_price、注文案なら order_unit_price。"""
     label = d.get("unit_price_label") or ""
     if d.get(key) is not None:
-        return f"{label} {format_unit_price(d[key])}円"
+        return " ".join(x for x in (label, f"{format_unit_price(d[key])}円") if x)
     prov = d.get(f"provisional_{key}")
     if prov is None:
         return None
-    return f"仮 {label} {format_unit_price(prov)}円（{unit_price_reason_text(d.get('unit_price_unconfirmed_reasons') or [])}）"
+    body = " ".join(x for x in ("仮", label, f"{format_unit_price(prov)}円") if x)
+    return f"{body}（{unit_price_reason_text(d.get('unit_price_unconfirmed_reasons') or [])}）"
 
 
 def unit_price_digits(x: float) -> int:

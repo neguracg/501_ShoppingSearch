@@ -263,14 +263,15 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
 def order_plan_to_dict(p: OrderPlan) -> dict:
     """注文案（同じ商品を n 個）。候補の全項目は出さず、商品を特定する項目と注文の数字だけ（候補一覧は groups[].offers）。"""
     o, q = p.offer, p.offer.quantity
-    included = p.shipping_status == "included"
+    kind = ("payment_total" if p.confirmed else                    # 確認済みの案だけ支払総額（§8 Q23。WP15 レビュー B1）
+            "unconfirmed_total" if p.shipping_status == "included" else "item_subtotal")
     return {
         "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
         "url": o.item_url, "url_status": o.item_url_status,
         "price": o.price, "price_min": o.price_min, "price_max": o.price_max, "price_varies": o.price_varies,
         "n": p.n, "order_quantity": p.order_quantity, "order_total": p.order_total,
-        "payment_total": p.order_total if included else None,           # 送料込みの支払総額である時だけ（§8 Q23）
-        "order_total_kind": "payment_total" if included else "item_subtotal",
+        "payment_total": p.order_total if kind == "payment_total" else None,
+        "order_total_kind": kind,
         **_price_fields(p.order_unit_price, unit_price_reasons(p.reasons), "order_unit_price"),
         "unit_price_label": o.unit_price_label,
         "shipping_status": p.shipping_status, "count_unit": p.count_unit,

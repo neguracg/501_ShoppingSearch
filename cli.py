@@ -136,8 +136,8 @@ def render_search(r: dict) -> None:
 
 def _plan_line(p: dict) -> str:
     mark = "確認済み" if p["confirmed"] else "未確認"
-    total = (f"注文額 {_yen(p['order_total'])}" if p["order_total_kind"] == "payment_total"
-             else f"商品小計（送料別） {_yen(p['order_total'])}")        # 送料別・不明の金額を支払総額と読ませない（§8 Q23）
+    total = {"payment_total": "注文額", "unconfirmed_total": "注文額（仮）",           # 確認済みでない金額を支払総額と読ませない（§8 Q23・Q24）
+             "item_subtotal": "商品小計（送料別・不明）"}[p["order_total_kind"]] + f" {_yen(p['order_total'])}"
     up = unit_price_text(p, "order_unit_price")
     return (f"{p['n']}個 = {format_amount(p['order_quantity'])} / {total}"
             f"（単価 {up}）/ {_ship(p)} / {mark} | {p['shop_name'] or '店舗不明'}\n"
