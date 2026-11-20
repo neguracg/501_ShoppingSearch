@@ -261,10 +261,7 @@ def _qty_label(o: Offer) -> str:
     q = o.quantity
     if q is None or q.count_total is None:
         return ""
-    text = f"{format_amount(q.count_total)}{q.count_unit}"
-    if q.content_amount is not None:
-        text += f"×{format_amount(q.content_amount)}{q.content_unit}"
-    return text
+    return f"{format_amount(q.count_total)}{q.count_unit}"          # 内容量は付けない（10枚×0.096m のような読み取りの癖を条件文に持ち込まない）
 
 
 def _order_plan(o: Offer, amount: float, mult: float, desired: float, desired_max: float | None,
