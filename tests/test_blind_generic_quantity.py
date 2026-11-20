@@ -24,6 +24,13 @@ min_price 等、UNITS/DISPLAY/COUNTERS への1行追加で単位が増えるこ�
   ファイル末尾の「WP14」節に、注文の組み合わせ・数え語グループ・説明欄補完の試験を足した。
   注文案（order_plans）の各項目名は SPEC に無いので、数字は cheapest_for_quantity（Offer）と
   to_check の条件文（文字列）経由でしか見ない。
+
+2026-11-21 改訂（WP15 段A。SPEC §8 Q21〜Q24・AC17・AC18）:
+  注文案の dict（service.order_plan_to_dict。Q16 でキーが確定）に、未確定の単価の振り分け
+  （order_unit_price=null・provisional_order_unit_price・unit_price_status・unit_price_unconfirmed_reasons）と
+  注文額の種類（payment_total・order_total_kind）が加わった。ファイル末尾の「WP14 の注文案 dict」節の各試験は
+  この新しいキーの期待値を足してある。内部の Offer.unit_price・並び・最安・to_check の閾値は不変なので、
+  pricing.compare を直接見る他の試験は変更なし。新契約の本体の試験は tests/test_blind_wp15.py。
 """
 
 from __future__ import annotations
@@ -2096,6 +2103,10 @@ def test_wp14_order_plan_dict_keys_and_numbers():
     assert d["confirmed"] is True and list(d["unconfirmed_reasons"]) == []
     assert d["quantity_source"] == "title"
     assert d["price_varies"] is False
+    # WP15 Q23: 確認済みの単価は素の値。仮の値は null。送料込みなので payment_total=order_total・種類 payment_total
+    assert d["unit_price_status"] == "confirmed" and list(d["unit_price_unconfirmed_reasons"]) == []
+    assert d["provisional_order_unit_price"] is None
+    assert d["payment_total"] == 1000 and d["order_total_kind"] == "payment_total"
 
 
 def test_wp14_order_plans_sorted_by_total_for_quantity_and_by_unit_price_for_range():
@@ -2128,6 +2139,11 @@ def test_wp14_unconfirmed_reason_shipping(status, reason):
     assert p["shipping_status"] == status
     assert p["confirmed"] is False and reason in p["unconfirmed_reasons"]
     assert r.cheapest_order is None
+    # WP15 Q21・Q23: 送料別・不明は単価の誤りではない → 単価は素の値のまま。注文額は商品小計で支払総額は null
+    # （n=1・12000ml・3000円 → 100mlあたり 25.0）
+    assert p["unit_price_status"] == "confirmed" and list(p["unit_price_unconfirmed_reasons"]) == []
+    assert p["order_unit_price"] == pytest.approx(25.0, abs=0.01) and p["provisional_order_unit_price"] is None
+    assert p["order_total"] == 3000 and p["payment_total"] is None and p["order_total_kind"] == "item_subtotal"
 
 
 def test_wp14_unconfirmed_reason_price_varies_and_dict_fields():
@@ -2138,6 +2154,9 @@ def test_wp14_unconfirmed_reason_price_varies_and_dict_fields():
     assert p["price_varies"] is True and p["price_min"] == 1500 and p["price_max"] == 1720
     assert p["price"] == 1500 and p["order_total"] == 1500 and p["n"] == 1
     assert p["confirmed"] is False and "price_varies" in p["unconfirmed_reasons"]
+    # WP15 Q21・Q23: 選択肢で価格が変わる案の単価は未確定。素の値は null、計算値（1500÷60=25.0）は仮の値
+    assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(25.0, abs=0.01)
+    assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["price_varies"]
 
 
 def test_wp14_unconfirmed_reason_caption_fill_and_evidence():
@@ -2149,6 +2168,9 @@ def test_wp14_unconfirmed_reason_caption_fill_and_evidence():
     assert p["caption_evidence"] and "24" in p["caption_evidence"]
     assert p["confirmed"] is False and "quantity_from_caption" in p["unconfirmed_reasons"]
     assert p["n"] == 2 and p["order_total"] == 4800
+    # WP15 Q21・Q23: 説明欄から補った数量の単価は未確定（4800÷48本=100）
+    assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(100.0, abs=0.01)
+    assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["quantity_from_caption"]
 
 
 def test_wp14_unconfirmed_reason_caption_conflict():
@@ -2157,6 +2179,9 @@ def test_wp14_unconfirmed_reason_caption_conflict():
     r = _compare([cap], basis="本", desired_quantity=24)
     (p,) = [_pd(x) for x in r.order_plans]
     assert p["confirmed"] is False and "caption_conflict" in p["unconfirmed_reasons"]
+    # WP15 Q21・Q23: 食い違いの案の単価は未確定（2400÷24本=100。題名の数量で計算する内部の値は不変）
+    assert p["order_unit_price"] is None and p["provisional_order_unit_price"] == pytest.approx(100.0, abs=0.01)
+    assert p["unit_price_status"] == "unconfirmed" and list(p["unit_price_unconfirmed_reasons"]) == ["caption_conflict"]
 
 
 def test_wp14_to_check_combined_reasons_make_one_condition():
