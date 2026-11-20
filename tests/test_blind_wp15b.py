@@ -182,13 +182,18 @@ def test_ac19_title_reading_itself_is_unchanged():
         (ROLL, "【長さ】100m", 100),                       # 括弧の直後
         (ROLL, "長さ 100m", 100),                         # 空白区切り
         (ROLL, "長さ100m", 100),                          # 区切りなし
+        (ROLL, "長さ25m", 25),                            # 数字の直付け（段B レビュー後の確定: 区切り・空白・直付けのどれでも読む）
+        (ROLL, "長さ 35m", 35),
+        (ROLL, "長さ／25m", 25),                          # 区切りに／・/
+        (ROLL, "長さ/25m", 25),
         (ROLL, "長さ：１００ｍ", 100),                     # NFKC 後
         (ROLL, "長さ：100m\n長さ：100m", 100),            # 見出しが複数でも全部が同じ値
         (ROLL, "x" * 300 + "●長さ：100mシングル", 100),   # 読み取りは全文（結果の caption は 200 字で切る）
         ("ラップ 3本", "長さ：25cm", 0.25),                # 単位換算（cm→m）
         ("ラップ 3本", "長さ：200mm", 0.2),                # mm→m
     ],
-    ids=["cocodecow", "halfwidth_colon", "bracket", "space", "no_separator", "fullwidth", "same_twice",
+    ids=["cocodecow", "halfwidth_colon", "bracket", "space", "no_separator", "direct25", "space35", "fullslash",
+         "slash", "fullwidth", "same_twice",
          "after_200_chars", "cm", "mm"],
 )
 def test_ac19_fill_forms(title, caption, amount_m):
@@ -215,6 +220,11 @@ def test_ac19_fill_forms(title, caption, amount_m):
         "長さ：100mはこちら",                    # 別商品への案内
         "長さ：100mあたり",                      # 単位あたりの言い回し
         "ロールの長さ：100m",                    # 見出しの直前が語の文字
+        "長さ30cmにカット",                      # 単位の直後が助詞（に）= 使用例の文（SPEC の例）
+        "長さ 約30cm のコード付き",              # 値が数字で始まらない（約）= 使用例の文（SPEC の例）
+        "長さ：100mの",                          # 助詞 の
+        "長さ：100m を",                         # 空白を読み飛ばした後の助詞 を
+        "長さ：10mまで", "長さ：10mほど", "長さ：10mより", "長さ：10mで", "長さ：10mが", "長さ：10mは",
         "重さ：500g", "重量：500g", "重さ：2kg", "重量：2kg",   # 足さない見出し
         "幅：108mm", "サイズ：108mm",             # 足さない見出し（紙幅を長さと読まない）
         "内容量：2L", "容量：2L",                 # 個数の無い値は題名が個数 high でも読まない
@@ -601,15 +611,36 @@ def test_ac20_not_empty_when_no_bag_candidate_exists():
     _scan(r)
 
 
-def test_ac20_number_none_set_counter_is_kept_not_dropped():
-    # AC20: Mayfair「60セット入り 1箱」型（数え語セット）も捨てない。unknown_offers に残り（単価を出さない）、
-    # order_plans には入らず、cheapest_order に選ばれない。to_check に出る時は counter_assumed。
-    c, r = _d1(more=[_o("m60", M60, 9710, ship="separate")])
-    assert M60 in _unknown_names(c) and M60 not in {p["name"] for p in c["order_plans"]}
-    assert M60 not in _selected_names(c)
-    if M60 in _tc_names(c):
-        assert "counter_assumed" in _creasons(_tc(c, M60))
+MAYFAIR = ("文化たきつけ 60セット入り 1箱 着火剤 強力着火 灯油系 マッチ1本で簡単着火 焚き火・薪ストーブ・BBQ用 丸実富士屋商店")
+
+
+def test_ac20_mayfair_low_title_reaches_to_check_with_reading_as_assumption():
+    # Q20（レビュー R1）・AC20・C5: Mayfair 型の題名（『マッチ1本で』の 1 で low。実題名）は、題名に読めた個数の読み
+    # 60セット を仮定にする。「この商品が60セットで、1セットが1袋なら」→ 袋の数＝60・n=ceil(30÷60)=1・9710円（送料別）。
+    # 9710円 < cheapest_order の 13200円 → to_check に必ず出る（空振りで通さない）。閾値 13200−9710=3490（送料の条件と合算した1文）。
+    # 条件文に「題名に食い違う数がある」。order_plans に入らず cheapest_order に選ばれず、unknown_offers に残る。
+    c, r = _d1(more=[_o("m60", MAYFAIR, 9710, ship="separate")])
+    t = _tc(c, MAYFAIR)
+    text = _ctext(t)
+    assert t["n"] == 1 and t["order_total"] == 9710 and t["shipping_status"] == "separate"
+    assert "counter_assumed" in _creasons(t) and list(t["unit_price_unconfirmed_reasons"]) == ["counter_assumed"]
+    assert "60セット" in text and "1セットが1袋なら" in text and "食い違う数がある" in text
+    assert len(t["conditions"]) == 1 and "送料" in text and "3490" in text
+    assert t["order_unit_price"] is None and t["payment_total"] is None and t["order_total_kind"] == "item_subtotal"
+    assert MAYFAIR in _unknown_names(c) and MAYFAIR not in {p["name"] for p in c["order_plans"]}
+    assert MAYFAIR not in _selected_names(c)
     _scan(r)
+
+
+def test_ac20_unreadable_candidates_appear_only_when_they_could_be_cheaper():
+    # Q20（量が読めない候補）: 仮定の注文額が cheapest_order（13200円）より安くなり得る時だけ to_check。
+    #   MAYFAIR 90000円（n=1・90000円）・Y0 1000円（none・n=30・30000円）は 13200 を超えるので出ない。
+    #   unknown_offers には残る（件数と理由は caveats）。比較として Y0 168円（5040円）は出る（d1 の試験）。
+    c, _ = _d1(more=[_o("m60", MAYFAIR, 90000, ship="separate")])
+    assert MAYFAIR not in _tc_names(c) and MAYFAIR in _unknown_names(c)
+    offers = [_o("b1", B1, 880), _o("y0", Y0, 1000, ship="separate")]
+    c2, _ = _cmp(offers, basis="袋", desired_quantity=30)
+    assert Y0 not in _tc_names(c2) and Y0 in _unknown_names(c2) and c2["cheapest_order"]["name"] == B1
 
 
 # ---- 1袋の中身の食い違い（pack_content_differs）----
@@ -635,6 +666,11 @@ def test_ac20_pack_content_differs_is_kept_in_plans_and_to_check():
     t = _tc(c, B3)
     assert "pack_content_differs" in _creasons(t)
     assert "1袋の中身が違う" in _ctext(t) and "9本" in _ctext(t)
+    # 独立レビュー B2: 条件文に基準の中身と件数「基準＝18本入（2件の商品名から）」。caveats にも基準・件数と多数決の旨
+    assert "基準＝18本入" in _ctext(t) and "2件" in _ctext(t)
+    base = [x for x in c["caveats"] if "基準" in x and "18本" in x]
+    assert base and any("2件" in x for x in base), c["caveats"]
+    assert any("多数決" in x for x in c["caveats"]), c["caveats"]
     o3 = _by_name(c, B3)
     assert o3["unit_price"] is None and o3["provisional_unit_price"] == pytest.approx(250.0, abs=0.01)
     assert list(o3["unit_price_unconfirmed_reasons"]) == ["pack_content_differs"]
