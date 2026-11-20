@@ -1,7 +1,7 @@
 # @owns WP15 段B ブラインド試験（項目単位の補完〔長さ〕・包装の数 quantity.packs・basis=袋 の比較・主グループ外の to_check）
 """WP15 段B ブラインド試験（2026-11-21）。根拠は docs/SPEC.md の §7 W4（項目単位の補完）・§7「包装の数」・§7 R9、
 §8 Q7・Q16・Q19・Q20・Q21〜Q24・「確認済み」、§10（MCP の指示）、AC15・AC16・AC19・AC20 だけ
-（src の実装・実装担当の説明は見ない。入力の題名は SPEC に例がある形と、録画した実題名〔data/wp15b/store.json の
+（src の実装・実装担当の説明は見ない。入力の題名は SPEC に例がある形と、録画した実題名（文字列で埋め込み済み。data/ は読まない）〔
 itemName・yumenokoya:39998092 だけ〕）。期待値は全て手計算（式を各試験のコメントに残す）。実装担当は読まない・編集しない。
 
 入口: service.compare_offers / search_products（偽 Adapter。実 API・本番は使わない）と、
