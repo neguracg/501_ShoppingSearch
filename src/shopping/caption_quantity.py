@@ -167,7 +167,7 @@ def read_offer_quantity(offer: Offer) -> QuantityInfo:
         if offer.price_varies:
             return q       # 選択肢で価格が変わる商品の説明欄は選択肢の1つの記述でしかない（実測: 補完の誤りはすべてこの形）
         if CAPTION_FILL_UNIT_PRICE:
-            return replace(cap.info, source="caption", caption_evidence=cap.evidence)
+            return replace(cap.info, source="caption", caption_evidence=cap.evidence, packs=[])     # 包装の数は題名だけから（§7）
         q.caption_evidence = cap.evidence
         q.caption_candidate = {"count_total": cap.info.count_total, "count_unit": cap.info.count_unit,
                                "content_amount": cap.info.content_amount, "content_dimension": cap.info.content_dimension}

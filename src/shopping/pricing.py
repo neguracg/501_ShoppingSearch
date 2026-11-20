@@ -449,14 +449,16 @@ def _plan_order(by_unit: bool):
 
 
 def add_assumed_to_check(to_check: list[ToCheck], best: OrderPlan | None, assumptions, mult: float, desired: float,
-                         desired_max: float | None, count_unit: str | None, label: str | None) -> list[ToCheck]:
-    """換算の仮定つきの候補（counter_basis.Assumption）を、確認済みの最安 best より安くなり得る時だけ to_check に足す（並べ直して返す）。
+                         desired_max: float | None, count_unit: str | None, label: str | None,
+                         only_cheaper: bool = True) -> list[ToCheck]:
+    """換算の仮定つきの候補（counter_basis.Assumption）を to_check に足す（並べ直して返す）。only_cheaper＝確認済みの最安 best より
+    安くなり得る時だけ（basis が個で主グループと違う数え語。Q19）。basis=数え語 の時は False で、仮定を置いた候補は捨てずに全部出す（Q20）。
     cheapest_order・order_plans には入れない。"""
     by_unit = desired_max is not None
     extra: list[ToCheck] = []
     for a in assumptions:
         plan, _ = _order_plan(a.offer, a.amount, mult, desired, desired_max, count_unit, assumed=a.text, label=label)
-        if plan is not None and _cheaper(plan, best, by_unit):
+        if plan is not None and (not only_cheaper or _cheaper(plan, best, by_unit)):
             extra.append(ToCheck(plan, _conditions(plan, best, by_unit)))
     key = _plan_order(by_unit)
     return sorted(to_check + extra, key=lambda t: key(t.plan))
@@ -671,7 +673,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
                 g.offers, amounts, mult, desired_quantity, desired_quantity_max, g.count_unit, pack_notes)
             if counter:
                 to_check = add_assumed_to_check(to_check, best, assumptions, mult, desired_quantity, desired_quantity_max,
-                                                counter, label)
+                                                counter, label, only_cheaper=False)
             g.order_plans, g.cheapest_order, g.to_check = plans, best, to_check
             desired_caveats += [(f"［{g.count_unit}］" if len(groups) > 1 else "") + c
                                 for c in _group_caveats(plans, best, g.count_unit or name, desired_quantity,
@@ -706,7 +708,8 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
                                              desired_quantity_max, only.count_unit, f"1{only.count_unit}あたり")
     top_to_check = only.to_check if only else []
     if only is None and assumptions:           # 比べられる候補（グループ）が無くても、換算の仮定つきの候補は最上位の to_check に出す
-        top_to_check = add_assumed_to_check([], None, assumptions, mult, desired_quantity, desired_quantity_max, counter, label)
+        top_to_check = add_assumed_to_check([], None, assumptions, mult, desired_quantity, desired_quantity_max, counter, label,
+                                            only_cheaper=False)
     placed = {id(t.plan.offer) for t in top_to_check} | {id(t.plan.offer) for g in groups for t in g.to_check}   # 換算の仮定つきで出した候補（WP15 段B）
     other_unit = [o for o in other_unit if id(o) not in placed]
     if other_unit:

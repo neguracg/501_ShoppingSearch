@@ -58,3 +58,11 @@ def test_the_output_always_has_packs_even_when_empty():
         o = make_offer("x", name=title, price=500)
         o.quantity = read_offer_quantity(o)
         assert service.offer_to_dict(o)["quantity"]["packs"] == expected
+
+
+def test_packs_come_from_the_title_only_not_from_a_caption_fill():
+    """題名が none で説明欄の見出し付きの値から数量を補った候補（source=caption）の packs は空（§7: 包装の数は題名から）。"""
+    o = make_offer("x", name="文化たきつけ 着火剤", price=500)
+    o.caption = "■数量:18本入×2袋"
+    q = read_offer_quantity(o)
+    assert (q.source, q.count_total) == ("caption", 36) and q.packs == []

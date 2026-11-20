@@ -113,7 +113,8 @@ def test_basis_counter_compares_only_that_count_unit():
     assert len(r.groups) == 1 and r.groups[0].count_unit == "本" and r.groups[0].basis == "本"
     assert {o.mall_item_code for o in r.groups[0].offers} == {"p18", "f36", "c36"}
     assert {o.mall_item_code for o in r.unknown_offers} == {"n10", "n60"}               # 数え語が違う候補は比べない
-    assert any("数え語が 本 でない候補: 2件" in c for c in r.caveats)
+    assert not any("数え語が 本 でない候補" in c for c in r.caveats)      # 換算の仮定つきで to_check に出した候補は数えない（Q20）
+    assert {t.plan.offer.mall_item_code for t in r.to_check if "counter_assumed" in t.plan.reasons} == {"n10", "n60"}
     assert r.cheapest_unit_price.mall_item_code == "p18"                          # 9.94円/本。単位価格は送料を見ない
     assert r.cheapest_order.offer.mall_item_code == "f36" and r.cheapest_order.n == 15      # 36本 x 15 = 540本・8,700円
     assert r.cheapest_order.order_total == 580 * 15

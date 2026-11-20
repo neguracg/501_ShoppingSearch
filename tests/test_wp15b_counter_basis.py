@@ -61,15 +61,29 @@ def test_other_candidates_are_kept_as_conditional_to_check_and_never_cheapest():
     assert tc["yama"].conditions[0]["reasons"] == ["counter_assumed", "shipping_separate"]       # quantity_unknown は仮定に置き換わる
 
 
-def test_assumption_candidates_not_cheaper_than_the_confirmed_cheapest_are_not_listed_but_counted_in_caveats():
+def test_basis_counter_keeps_every_assumed_candidate_even_when_it_is_not_cheaper():
+    """Q20: 仮定を置いた候補は捨てずに全部 to_check（Q19 の主グループ外の数え語だけ『より安くなり得る時』）。"""
     r = compare(base_set() + [off("big", "文化たきつけ 100個セット", 99999)], basis="袋", desired_quantity=30)
-    assert "big" not in {t.plan.offer.mall_item_code for t in r.to_check}              # 3 個×99,999 円は確認済みの 13,200 円より高い
-    assert any("数え語が 袋 でない候補: 1件" in c for c in r.caveats)                   # 出さなかった候補は従来どおり数える
-    assert not any("数え語が 袋 でない候補: 6件" in c for c in r.caveats)             # 出した 5 件は数えない
+    big = by(r, "big")
+    assert big.plan.order_total == 99999 * 1 and big.conditions[0]["threshold"] is None     # 100袋相当 1個。確認済みの 13,200 円より高いが残る
+    assert "この商品の1個が1袋なら" in big.conditions[0]["text"]
+    assert not any("数え語が 袋 でない候補" in c for c in r.caveats)                     # 仮定つきで出した候補は数えない
+
+
+def test_a_low_title_is_treated_like_none_one_item_is_one_bag():
+    """mayfair-17:10014877: 題名は 60セット入り 1箱 でも『マッチ1本で』の 1 が総数と食い違って low。量が読めないので 1点＝1袋。"""
+    low = off("mf60", MAYFAIR60, 9710, ship="separate")
+    assert low.quantity.confidence == "low"
+    r = compare(base_set() + [low], basis="袋", desired_quantity=30)
+    t = by(r, "mf60")
+    assert t.plan.n == 30 and t.plan.order_total == 9710 * 30 and t.plan.reasons == ["counter_assumed", "shipping_separate"]
+    assert t.conditions[0]["text"].startswith("この商品1点が1袋なら、送料別。")
+    assert "mf60" not in [p.offer.mall_item_code for p in r.order_plans] and r.cheapest_order.offer.mall_item_code == "cololo"
 
 
 def test_caveat_names_the_count_of_assumptions_and_the_ground():
     r = compare(base_set(), basis="袋", desired_quantity=30)
+    assert len(r.to_check) == 5
     text = next(c for c in r.caveats if "換算を仮定" in c)
     assert f"{len(r.to_check)}件" in text and "1袋＝18本は候補 1件の商品名から" in text
 
@@ -149,7 +163,9 @@ def test_service_dict_gives_the_assumed_plan_a_provisional_price_with_the_counte
 def test_basis_hon_still_works_the_old_way():
     r = compare(base_set(), basis="本", desired_quantity=540)
     assert {o.mall_item_code for o in r.groups[0].offers} == {"cololo", "mf36", "fans10", "p18"}
-    assert r.to_check == [] or all("counter_assumed" not in t.plan.reasons for t in r.to_check)
+    assert r.cheapest_order.confirmed
+    # basis=本 でも数え語が違う候補（n10 の 10個セット）・数量が読めない候補（yama）は、Q20 のとおり換算の仮定つきで to_check に残る
+    assert {t.plan.offer.mall_item_code for t in r.to_check if "counter_assumed" in t.plan.reasons} == {"n10", "yama"}
 
 
 # --- 数え語が複数のグループ（basis が個）: 主グループと違う数え語 -----------------------------------

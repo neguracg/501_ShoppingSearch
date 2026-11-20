@@ -101,6 +101,8 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
         if o.price is None:
             continue
         q = o.quantity
+        if q is not None and q.caption_candidate is not None:
+            continue                       # 説明欄に見出し付きの数量がある（印と根拠だけの形。CAPTION_FILL_UNIT_PRICE=False）候補は caveats で案内済み
         if q is not None and q.confidence == "high" and q.count_total:
             if base is not None and q.count_unit == base[1] and q.count_total % base[0] == 0:
                 note = f"（根拠: {_source_text(pack_offers)}）"
