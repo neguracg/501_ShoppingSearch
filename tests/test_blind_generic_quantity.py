@@ -1655,6 +1655,19 @@ def _yen_thresholds(text, suffix):
     return [int(m.replace(",", "")) for m in re.findall(r"(\d[\d,]*)\s*円" + suffix, text)]
 
 
+def _pd(plan):
+    """注文案を SPEC §8 Q16 の dict（service.order_plan_to_dict。キー: item_code・name・n・order_quantity・
+    order_total・order_unit_price・shipping_status・confirmed・unconfirmed_reasons ほか）にする。"""
+    from shopping.service import order_plan_to_dict
+
+    return order_plan_to_dict(plan)
+
+
+def _conditions(tc):
+    c = tc["conditions"] if isinstance(tc, dict) else tc.conditions
+    return [x if isinstance(x, dict) else vars(x) for x in c]
+
+
 def _caveats_text(r):
     return "\n".join(r.caveats)
 
@@ -1709,22 +1722,16 @@ def test_wp14_desired_max_makes_the_cheaper_overshoot_unreachable():
     assert list(r.order_plans) == []
 
 
-def test_wp14_n_1000_exactly_is_kept():
-    # Q10: n が 1000 を超える案は除く＝1000 ちょうどは残る。
-    # basis=個: T3 は 100本入り。desired=100000 → T3 n=1000（残る）。最安は T3（4,000,000円）。
+def test_wp14_n_has_no_upper_limit():
+    # Q10（改訂）: 注文個数 n に上限は置かない（出典が無い）。大きい n の案も残る。
+    # basis=個, desired=100000: T3(100本) n=1000、T1・T2(40本) n=2500 が全部残る。最安は T3（4,000,000円）。
     r = _compare(_batteries(), basis="個", desired_quantity=100000)
     assert r.cheapest_for_quantity.item_name == T3
-    assert T3 in _dump(r.cheapest_order)
-
-
-def test_wp14_n_over_1000_is_dropped():
-    # Q10: n が 1000 を超える案は除く。desired=100000: T1/T2 は n=2500（除く）→ 残るのは T3 の 1 案。
-    r = _compare(_batteries(), basis="個", desired_quantity=100000)
-    assert len(r.order_plans) == 1 and T3 in _dump(r.order_plans)
-    # desired=100001 → T3 も n=1001（除く）→ 案が無い
+    assert sorted(_pd(p)["n"] for p in r.order_plans) == [1000, 2500, 2500]
+    # desired=100001: T3 n=1001・T1/T2 n=2501 も残る
     r = _compare(_batteries(), basis="個", desired_quantity=100001)
-    assert r.cheapest_for_quantity is None and r.cheapest_order is None
-    assert list(r.order_plans) == []
+    assert r.cheapest_for_quantity.item_name == T3
+    assert sorted(_pd(p)["n"] for p in r.order_plans) == [1001, 2501, 2501]
 
 
 @pytest.mark.parametrize(
@@ -2068,3 +2075,140 @@ def test_wp14_main_group_comes_first_in_groups(offers_fn, expected):
     r = _compare(offers_fn())
     assert r.main_count_unit == expected
     assert r.groups[0].count_unit == expected
+
+
+# ---- Q16 の dict のキー・並び順（量の指定／範囲指定）・理由の語 ----
+
+
+def test_wp14_order_plan_dict_keys_and_numbers():
+    # Q16: 注文案の dict。small 6000ml 500円（500ml×12本）、desired=10000ml → n=2・注文量 12000・注文額 1000。
+    # 注文の単価 = 1000÷12000×100 = 8.33（100mlあたり）。確認済み・理由なし。
+    small = "天然水 500ml×12本"
+    r = _compare([_offer(small, 500)], basis="ml", desired_quantity=10000)
+    d = _pd(r.cheapest_order)
+    assert d["name"] == small and d["price"] == 500
+    assert d["n"] == 2
+    assert d["order_quantity"] == pytest.approx(12000)
+    assert d["order_total"] == 1000
+    assert d["order_unit_price"] == pytest.approx(1000 / 12000 * 100, rel=1e-2)
+    assert d["unit_price_label"] == "100mlあたり"
+    assert d["shipping_status"] == "included"
+    assert d["confirmed"] is True and list(d["unconfirmed_reasons"]) == []
+    assert d["quantity_source"] == "title"
+    assert d["price_varies"] is False
+
+
+def test_wp14_order_plans_sorted_by_total_for_quantity_and_by_unit_price_for_range():
+    # Q16: 量の指定（上限なし）は注文額の安い順。範囲指定（上限あり）は注文の単価の安い順で、
+    # cheapest_order も範囲指定なら注文の単価が最小。
+    # A 100本 4000円: n=1・100本・4000円・40円/個。B 60本 2300円: n=2・120本・4600円・38.33円/個。
+    a = "単3電池 100本"
+    b = "単3電池 60本"
+
+    def offers():
+        return [_offer(a, 4000), _offer(b, 2300)]
+
+    r = _compare(offers(), basis="個", desired_quantity=100)
+    assert [_pd(p)["name"] for p in r.order_plans] == [a, b]  # 注文額 4000 < 4600
+    assert r.cheapest_for_quantity.item_name == a
+    r = _compare(offers(), basis="個", desired_quantity=100, desired_quantity_max=120)
+    assert [_pd(p)["name"] for p in r.order_plans] == [b, a]  # 単価 38.33 < 40
+    assert _pd(r.cheapest_order)["name"] == b
+    assert r.cheapest_for_quantity.item_name == b
+
+
+@pytest.mark.parametrize(
+    "status,reason",
+    [("separate", "shipping_separate"), ("unknown", "shipping_unknown")],
+)
+def test_wp14_unconfirmed_reason_shipping(status, reason):
+    # Q16: unconfirmed_reasons の語（送料別 shipping_separate・不明 shipping_unknown）と shipping_status
+    r = _compare([_offer("天然水 2L×6本", 3000, shipping_status=status)], basis="ml", desired_quantity=10000)
+    (p,) = [_pd(x) for x in r.order_plans]
+    assert p["shipping_status"] == status
+    assert p["confirmed"] is False and reason in p["unconfirmed_reasons"]
+    assert r.cheapest_order is None
+
+
+def test_wp14_unconfirmed_reason_price_varies_and_dict_fields():
+    # Q16: price_varies の案: price_varies=true・価格幅を出す・理由 price_varies・確認済みでない
+    v = "貼るカイロ 60枚 V店"
+    r = _compare([_offer_ex(v, 1500, price_min=1500, price_max=1720)], basis="個", desired_quantity=60)
+    (p,) = [_pd(x) for x in r.order_plans]
+    assert p["price_varies"] is True and p["price_min"] == 1500 and p["price_max"] == 1720
+    assert p["price"] == 1500 and p["order_total"] == 1500 and p["n"] == 1
+    assert p["confirmed"] is False and "price_varies" in p["unconfirmed_reasons"]
+
+
+def test_wp14_unconfirmed_reason_caption_fill_and_evidence():
+    # Q16: 説明欄から補完した案: quantity_source=caption・理由 quantity_from_caption・根拠つき・確認済みでない
+    cap = _caption_offer("お茶 ペットボトル おすすめ", "内容量：24本", 2400)
+    r = _compare([cap], basis="本", desired_quantity=48)
+    (p,) = [_pd(x) for x in r.order_plans]
+    assert p["quantity_source"] == "caption"
+    assert p["caption_evidence"] and "24" in p["caption_evidence"]
+    assert p["confirmed"] is False and "quantity_from_caption" in p["unconfirmed_reasons"]
+    assert p["n"] == 2 and p["order_total"] == 4800
+
+
+def test_wp14_unconfirmed_reason_caption_conflict():
+    # Q16: 題名 high と説明欄の食い違い: 理由 caption_conflict・確認済みでない（confidence は high のまま）
+    cap = _offer_ex("お茶 24本", 2400, caption="内容量：48本", prefill=False)
+    r = _compare([cap], basis="本", desired_quantity=24)
+    (p,) = [_pd(x) for x in r.order_plans]
+    assert p["confirmed"] is False and "caption_conflict" in p["unconfirmed_reasons"]
+
+
+def test_wp14_to_check_combined_reasons_make_one_condition():
+    # Q16: 金額に関わる理由が複数（送料別 かつ 選択肢で価格が変わる）なら、案ごとに 1 つの conditions 要素に
+    # まとめる:「商品名の数量の選択肢の価格×n個＋送料の合計が X円未満なら安い」（X=cheapest_order の注文額）。
+    # 片方ずつの閾値（「…円以下」「送料が…円未満」）は並べない。
+    v = "貼るカイロ 60枚 V店"
+    c = "貼るカイロ 60枚 C店"
+    r = _compare(
+        [_offer_ex(v, 1500, shipping_status="separate", price_min=1500, price_max=1720), _offer_ex(c, 1800)],
+        basis="個",
+        desired_quantity=60,
+    )
+    assert _pd(r.cheapest_order)["name"] == c
+    assert len(r.to_check) == 1
+    conds = _conditions(r.to_check[0])
+    assert len(conds) == 1
+    text = conds[0]["text"]
+    assert "合計" in text and 1800 in _yen_thresholds(text, "未満")
+    assert not _yen_thresholds(text, "以下")
+    assert conds[0]["threshold"] == 1800
+    assert set(conds[0]["reasons"]) >= {"price_varies", "shipping_separate"}
+
+
+def test_wp14_to_check_single_reason_condition_dict():
+    # Q16: 送料別だけ → conditions は 1 要素。threshold = X − この案の注文額（5000-4200=800）、reasons に shipping_separate
+    a = "天然水 2L×6本 A店"
+    b = "天然水 2L×6本 B店"
+    r = _compare(
+        [_offer(a, 4200, shipping_status="separate"), _offer(b, 5000)], basis="ml", desired_quantity=10000
+    )
+    conds = _conditions(r.to_check[0])
+    assert len(conds) == 1
+    assert conds[0]["threshold"] == 800
+    assert "shipping_separate" in conds[0]["reasons"]
+    assert "800" in conds[0]["text"].replace(",", "") and "送料" in conds[0]["text"]
+
+
+def test_wp14_desired_caveat_names_main_group_and_suggests_count_basis():
+    # Q19: 複数グループに希望量を当てた時、caveats に「希望量 N は主グループの数え方［本］として扱いました…
+    # 袋で数えるなら basis=袋 を指定してください」。
+    fukuro = "お米 30袋"
+    r = _compare([_offer(T1, 2000), _offer(T3, 4000), _offer(fukuro, 3000)], basis="個", desired_quantity=100)
+    line = [c for c in r.caveats if "主グループの数え方" in c]
+    assert len(line) == 1, r.caveats
+    assert "100" in line[0] and "本" in line[0] and "basis=袋" in line[0]
+
+
+def test_wp14_price_varies_caveat_counts_candidates():
+    # §8 W1・AC13: caveats に「選択肢によって価格が変わる候補: N件」。一覧・グループには残る
+    v = "貼るカイロ 60枚 V店"
+    r = _compare([_offer_ex(v, 1500, price_min=1500, price_max=1720), _offer_ex("貼るカイロ 60枚 C店", 1800)])
+    line = [c for c in r.caveats if "選択肢によって価格が変わる候補" in c]
+    assert len(line) == 1 and "1件" in line[0]
+    assert v in _names(_grouped(r))
