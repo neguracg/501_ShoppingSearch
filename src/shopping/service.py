@@ -18,7 +18,7 @@ from .inputs import (DEFAULT_PAGES, MAX_PAGES, InvalidInput, check_basis, check_
                      check_term_lengths)
 from .pricing import (Comparison, OrderPlan, ToCheck, compare, filter_by_terms, round_unit_price,
                       total_price)
-from .quantity import parse_quantity
+from .caption_quantity import read_offer_quantity
 from .regulars import Regular, RegularsError, get_regular
 
 SOURCE = "楽天市場（楽天ウェブサービス）"
@@ -167,7 +167,7 @@ def _shipping_conflict_note(offers: list[Offer]) -> str | None:
 
 def _annotate(offers: list[Offer]) -> None:
     for o in offers:
-        o.quantity = parse_quantity(o.item_name)
+        o.quantity = read_offer_quantity(o)
 
 
 def _base_notes(offers: list[Offer], stats: SearchStats, mock: bool, hits: int,

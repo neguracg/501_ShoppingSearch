@@ -163,6 +163,10 @@ def _qty(o: dict) -> str:
     if q.get("content_amount") is not None:
         text += (f" × {format_amount(q['content_amount'])}{q['content_unit']}"
                  f"（計 {format_amount(q['measure_total'])}{q['content_unit']}）")
+    if q.get("source") == "caption":
+        text += "【説明欄の記述から補完・確認済みではない: " + str(q.get("caption_evidence")) + "】"
+    elif q.get("caption_conflict"):
+        text += "【説明欄の「" + str(q.get("caption_evidence")) + "」と食い違い・要確認】"
     up = o.get("unit_price")
     return text + (f"／{o['unit_price_label']} {format_unit_price(up)}円" if up is not None else "")
 

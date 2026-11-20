@@ -8,9 +8,10 @@ from collections import Counter
 from statistics import median
 from dataclasses import dataclass, field
 
+from .caption_quantity import read_offer_quantity
 from .inputs import check_desired_range, resolve_compare_basis
 from .models import Offer
-from .quantity import DISPLAY, _norm, base_unit, format_amount, parse_quantity
+from .quantity import DISPLAY, _norm, base_unit, format_amount
 
 SPEC_CAVEAT = "仕様の違い（濃縮・層数・型番・色など）は判定していません。商品名で確認してください。"
 QUANTITY_CAVEAT = "数量は商品名からの読み取りで、誤ることがあります。購入前に商品ページで確認してください。"
@@ -399,7 +400,7 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
 
     for o in candidates:
         if o.quantity is None:
-            o.quantity = parse_quantity(o.item_name)
+            o.quantity = read_offer_quantity(o)
         o.unit_price = None
         o.unit_price_label = None
         o.unit_price_dimension = None
@@ -450,6 +451,15 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if varies:
         caveats.append(f"選択肢によって価格が変わる候補: {len(varies)}件（表示価格が商品名の数量の選択肢の価格とは"
                        "限らないため、単位価格・注文の最安から外した）")
+
+    from_caption = [o for o in members if o.quantity.source == "caption"]
+    if from_caption:
+        caveats.append(f"数量を説明欄の見出し付きの記述から補った候補: {len(from_caption)}件（題名から数量が読めなかった候補。"
+                       "確認済みではないので、単位価格・注文の最安には選ばず、安い時は to_check に条件つきで出した）")
+    conflicting = [o for o in candidates if o.quantity.caption_conflict]
+    if conflicting:
+        caveats.append(f"題名の数量と説明欄の見出し付きの数量が食い違う候補: {len(conflicting)}件"
+                       "（各候補の quantity.caption_conflict・caption_evidence。説明欄が単位あたりの記述のこともあるので商品ページで確認）")
 
     cheapest_price = min(priced, key=lambda o: (o.price, o.mall_item_code)) if priced else None
 
