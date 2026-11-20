@@ -66,6 +66,9 @@ OUTER_WORDS = frozenset({"セット", "ケース", "パック", "箱", "袋"})
 
 # 包装の数（pack_forms.py。WP15 段B）の包装語: 容器語・外側の語に 個・コ・缶・本・箱 を足したもの
 PACK_WORDS = frozenset(OUTER_WORDS | CONTAINERS | {"個", "コ", "缶", "本", "箱"})
+# 上のうち中身を数える語（本・缶）を除いた、純粋な包装の語（パック・ケース・個・箱・袋・セット…）。counter_basis が「1<数え語>が1袋なら」の
+# 1 対 1 の仮定を置いてよい数え語の判定に使う（本・枚・ロールは中身の数え語なので、1袋の中身が決まらない限り 1 対 1 に置かない）。表はここ 1 か所
+PACKAGING_WORDS = frozenset(PACK_WORDS - {"本", "缶"})
 
 # 数え語としての条件が文脈で変わる語（X1）。表の別名（正規化後）で持つ
 SOLO_LOW_COUNTERS = frozenset({"P"})           # ×・入数に続かない単独の NP は high にしない（60P 対応）

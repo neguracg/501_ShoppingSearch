@@ -128,3 +128,5 @@
 - 2026-11-21 02:25 本番反映（WP15 段B）: 2fe2a2b を反映後、実 API の再実行で low の読み（36本）を『1本が1袋なら36袋相当・940円』と置く偽の激安を発見→94d7fec で基準（1袋＝18本）換算に修正し 5ec5ef0 を再反映（STATE=OK、全件 3575 passed）。本番 2fe2a2b の不具合は約3分間。HANDOFF を更新
 
 - 2026-11-21 WP15 段B 数え語で量を言われた時の案内: basis を省略した「文化たきつけ desired=30」は 30 が主グループの 本 として扱われる。caveat 自体は出ていたが助言が「別の数え方なら basis に数え語を指定」の一般形で、packs にある 袋 を勧めていなかった（グループが 1 つで packs に別の数え語がある時は caveat 自体が出なかった）→ 数え語のグループが複数または packs に別の数え語がある時に必ず出し「袋で数えるなら basis=袋」と具体的に勧める（counter_basis.other_counters）。compare_offers の説明に「利用者が『30袋』『50枚』と言ったら basis にその数え語・desired にその数」の1文を入れ、例示文は INSTRUCTIONS へ移した（説明 2000 字以内）。SPEC Q19・§10・自作試験も同コミット
+
+- 2026-11-21 WP15 段B 最終レビュー B1・C1: 「1<数え語>が1<basis>なら」の1対1の仮定は包装の語（quantity.PACKAGING_WORDS＝pack_forms の包装語から 本・缶 を除く）だけ。本・枚・ロールなど中身を数える語は基準が一意なら換算、一意でなければ仮定を置かず unknown_offers に残し caveats に件数と理由（high・low の読み・Q19 の3経路）。540本→540袋相当 12,000円の偽の激安を止める。Q19 の足・枚・本の候補（e-godai の1足）と逆向き（主個・候補枚）は仮定なしになった。条件文の袋数は小数1桁表示。再生 to_check: kairo_mai 10（unknown へ 21 件）・kairo_cheap 68→45・takitsuke_fukuro 18（変わらず）。SPEC Q19/Q20・BUGLOG ヨコテン欄も同コミット

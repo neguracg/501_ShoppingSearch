@@ -86,11 +86,11 @@ def test_unreadable_quantity_candidates_are_listed_only_when_they_could_be_cheap
     assert "lowhigh" not in {x.plan.offer.mall_item_code for x in r2.to_check}
     assert any("確認済みの最安より安くなり得ない候補: 1件" in c for c in r2.caveats)
     # 読みが複数ある low は、安くなり得る読みのうち最安の注文額の 1 つだけを出す
-    multi = off("multi", "着火剤 12ロール 24ロール", 300)
+    multi = off("multi", "着火剤 12個 24個", 300)
     assert multi.quantity.confidence == "low"
     rm = compare(base_set() + [multi], basis="袋", desired_quantity=30)
     tm = [x for x in rm.to_check if x.plan.offer.mall_item_code == "multi"]
-    assert len(tm) == 1 and tm[0].plan.n == 2 and "24ロールで" in tm[0].conditions[0]["text"]
+    assert len(tm) == 1 and tm[0].plan.n == 2 and "24個で" in tm[0].conditions[0]["text"]
     # 確認済みが 1 件も無い時は全部出す（Q16）
     only_low = compare([low, off("yama", "富士屋 文化たきつけ [着火剤]", 168, ship="separate")], basis="袋", desired_quantity=30)
     assert {t.plan.offer.mall_item_code for t in only_low.to_check} == {"mf60", "yama"}
@@ -145,10 +145,30 @@ def test_the_base_is_the_most_common_content_and_ties_go_to_the_cheaper_confirme
     assert {o.mall_item_code for o in r.groups[0].offers if o.pack_content_differs} == {"n9"}     # 多い方が基準
 
 
-def test_two_different_contents_mean_no_unique_content_so_assumption_two_is_used():
-    r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), off("p18", P18, 179)], basis="袋", desired_quantity=30)
-    text = by(r, "p18").conditions[0]["text"]
-    assert text.startswith("この商品の1本が1袋なら") and "18本なら" not in text
+def test_two_different_contents_mean_no_unique_content_so_a_content_count_word_gets_no_assumption():
+    """再現 A（最終レビュー B1）: 18本入と9本入が混在して 1袋の中身が決まらない時、本を『1本が1袋』と 1 対 1 に置かない
+    （『540本 → 540袋相当・12,000円』の偽の激安）。本・枚・ロールは中身を数える語。包装の語（個・パック・箱…）だけ 1 対 1 を置く。"""
+    big = off("b540", "着火剤 540本", 12000)
+    r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), big, off("n10", T10, 3200)],
+                basis="袋", desired_quantity=30)
+    assert "b540" not in {t.plan.offer.mall_item_code for t in r.to_check} and "b540" in [o.mall_item_code for o in r.unknown_offers]
+    assert any("1袋の中身が決まらないため換算していない候補: 1件" in c for c in r.caveats)
+    assert not any("540袋相当" in t.conditions[0]["text"] or "1本が1袋" in t.conditions[0]["text"] for t in r.to_check)
+    assert "n10" in {t.plan.offer.mall_item_code for t in r.to_check}              # 10個セット（個は包装の語）は 1 対 1 で残る
+
+
+def test_only_content_count_word_candidates_and_no_packs_get_no_assumption():
+    """再現 C: packs の候補が無く本だけ（basis=袋）。1袋の中身が決められないので、本は仮定を置かず unknown_offers に残る。"""
+    r = compare([off("b1", "着火剤 540本", 12000), off("b2", P18, 179, ship="separate")], basis="袋", desired_quantity=30)
+    assert r.to_check == [] and {o.mall_item_code for o in r.unknown_offers} == {"b1", "b2"}
+    assert any("1袋の中身が決まらないため換算していない候補: 2件" in c for c in r.caveats)
+
+
+def test_bag_count_in_the_sentence_is_rounded_to_one_decimal_but_not_in_the_calculation():
+    """C1: 7本 ÷ 18本 = 0.389袋 × 78個 = 30.333袋。表示は 30.3袋、order_quantity は丸めない。"""
+    r = compare(base_set() + [off("n7", "着火剤 7本", 10)], basis="袋", desired_quantity=30)
+    t = by(r, "n7")
+    assert t.plan.n == 78 and t.plan.order_quantity == pytest.approx(78 * 7 / 18) and "30.3袋相当" in t.conditions[0]["text"]
 
 
 def test_a_count_unit_candidate_is_counted_by_its_total_not_by_packs():
@@ -247,9 +267,9 @@ def test_a_readable_count_in_the_content_unit_that_does_not_divide_is_still_conv
     assert t.plan.order_quantity >= 30 and t.plan.n == 27                   # 20本 ≒ 1.11袋 × 27個
 
 
-def test_without_a_unique_base_the_one_to_one_assumption_stays():
-    r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), off("p18", P18, 179)], basis="袋", desired_quantity=30)
-    assert by(r, "p18").conditions[0]["text"].startswith("この商品の1本が1袋なら")
+def test_without_a_unique_base_a_packaging_word_keeps_the_one_to_one_assumption():
+    r = compare([off("n9", "着火剤 9本入 2袋セット", 300), off("n18", COLOLO, 880), off("n10", T10, 3200)], basis="袋", desired_quantity=30)
+    assert by(r, "n10").conditions[0]["text"].startswith("この商品の1個が1袋なら")
 
 
 def test_desired_without_a_basis_says_it_was_counted_in_the_main_count_word_even_with_one_group():

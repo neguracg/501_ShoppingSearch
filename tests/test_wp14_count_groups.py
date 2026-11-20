@@ -147,8 +147,10 @@ def test_basis_counter_with_no_matching_candidates_says_so():
     r = compare([o for o in takitsuke() if o.mall_item_code != "c36"], basis="袋", desired_quantity=30)
     assert r.groups == [] and r.cheapest_order is None
     assert len(r.unknown_offers) == 4        # 単価は出さない。換算の仮定つきで to_check に残る（counter_assumed。Q20）
-    assert {t.plan.offer.mall_item_code for t in r.to_check} == {"p18", "f36", "n10", "n60"}
+    # 10個セット・60個セットは個（包装の語）なので 1 対 1 の仮定が残り、本（p18・f36）は 1袋の中身が決まらず仮定を置かない（最終レビュー B1）
+    assert {t.plan.offer.mall_item_code for t in r.to_check} == {"n10", "n60"}
     assert all("counter_assumed" in t.plan.reasons for t in r.to_check)
+    assert any("1袋の中身が決まらないため換算していない候補: 2件" in c for c in r.caveats)
     assert any("必要数量" in c and "30" in c for c in r.caveats)
 
 

@@ -423,7 +423,7 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                  "quantity_from_caption": f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）",
                  "measure_from_caption": f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）",
                  "counter_assumed": f"{plan.notes.get('counter_assumed', '')}、この商品を{plan.n}個注文すると "
-                                    f"{format_amount(plan.order_quantity)}{plan.count_unit or ''}相当・{plan.order_total:,}円"
+                                    f"{format_amount(round(plan.order_quantity, 1))}{plan.count_unit or ''}相当・{plan.order_total:,}円"
                                     "（換算の仮定。商品ページで確認）",
                  "pack_content_differs": plan.notes.get("pack_content_differs", "1袋の中身が違う。")
                                          + "基準と中身が違うので同じ最安競争にしていない。商品ページで確認",
@@ -611,8 +611,9 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
             pack_notes[id(o)] = {"pack_content_differs": counter_basis.differs_text(o, counter, base, n_base)}
     assumptions: list[counter_basis.Assumption] = []
     assume_why: str | None = None
+    skipped: list[Offer] = []
     if counter and desired_quantity is not None:
-        assumptions, assume_why = counter_basis.assume_for_counter(others, pack_offers, counter)
+        assumptions, assume_why, skipped = counter_basis.assume_for_counter(others, pack_offers, counter)
     groups = _split_groups(members, name, dim, counter)
     outliers = [o for g in groups for o in mark_unit_price_outliers(g.offers)]      # 外れ値は数え語のグループの中で判定する
 
@@ -714,7 +715,11 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if only is None and assumptions:           # 比べられる候補（グループ）が無くても、換算の仮定つきの候補は最上位の to_check に出す
         top_to_check = add_assumed_to_check([], None, assumptions, mult, desired_quantity, desired_quantity_max, counter, label)
     placed = {id(t.plan.offer) for t in top_to_check} | {id(t.plan.offer) for g in groups for t in g.to_check}   # 換算の仮定つきで出した候補（WP15 段B）
-    other_unit = [o for o in other_unit if id(o) not in placed]
+    skipped_ids = {id(o) for o in skipped}
+    other_unit = [o for o in other_unit if id(o) not in placed and id(o) not in skipped_ids]
+    if skipped:
+        caveats.append(f"数え語が {counter} でなく、1{counter}の中身が決まらないため換算していない候補: {len(skipped)}件"
+                       "（本・枚など中身を数える語を 1 対 1 に置かない。unknown_offers に残した）")
     if other_unit:
         caveats[other_unit_slot] = (f"数え語が {counter} でない候補: {len(other_unit)}件"
                                     f"（比べる単位 {counter} の量を持たないので単価を出していない）")
