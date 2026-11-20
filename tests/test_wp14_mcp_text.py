@@ -10,7 +10,7 @@ from shopping import mcp_server
 from shopping.mcp_server import INSTRUCTIONS, _ORDER_GUIDE, _SEARCH_GUIDE, build_server
 
 PHRASES = ["desired_quantity=下限・desired_quantity_max=上限", "cheapest_order", "to_check", "送料無料ライン（3,980円など）を仮定しない",
-           "price_varies", "商品ページで確認", "basis=本・desired_quantity=540", "数え方の違う候補を同じ単価順に並べない",
+           "price_varies", "商品ページで確認", "basis=袋・desired=30 のままでよい", "数え方の違う候補を同じ単価順に並べない",
            "見出し付きの仕様", "同一品と分けて示す", "asuraku_flag"]
 
 
