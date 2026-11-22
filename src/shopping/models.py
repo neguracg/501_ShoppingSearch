@@ -30,6 +30,23 @@ class QuantityInfo:
     # 包装の数（WP15 段B。題名の F1〜F3 の形。pack_forms.py）。[{"unit":"袋","count":2,"per_pack":18,"per_pack_unit":"本"}]。
     # 題名の総数が high でその総数が N×M と一致する時だけ。読めなければ []。総数・confidence には影響しない
     packs: list = field(default_factory=list)
+    # 題名 low の出力（WP16 U2a・readings）。low_reason＝low の理由のコード（quantity.py `_low` の表。low 以外は None）。
+    # readings＝low の題名から読めた個数・内容量の読みの一覧（印。単価には使わない）。low 以外は None
+    low_reason: str | None = None
+    readings: dict | None = None
+    # 説明欄の各文から抽出したが採らなかった値の一覧（WP16 U1。印。確定値ではない）。
+    # [{"count_total","count_unit","content_amount","content_dimension","evidence"}]（読めなかった項目は None）。キーは常に出す
+    caption_candidates: list = field(default_factory=list)
+    # U1 の採用待ち（次元 → caption_candidates の中の候補 dict〔同一の物〕）。(ii)(i) を通った値で、(iii) 桁の照合は
+    # 比較グループの統計が要るので caption_adopt.adopt_u1 が採用する（抽出と採用の分離）。採用された次元は u1_adopted
+    u1_pending: dict = field(default_factory=dict)
+    u1_adopted: list = field(default_factory=list)
+
+    @property
+    def low_adopted(self) -> bool:
+        """題名 low の読みを仮の数量として使っている（U2a の総数・U2b で選んだ読み。confidence は low のまま。未確定理由 quantity_low）。
+        low で count_total が入るのは、この2つだけ。"""
+        return self.confidence == "low" and self.count_total is not None
 
     def __post_init__(self) -> None:
         if (self.measure_total is None and self.count_total is not None

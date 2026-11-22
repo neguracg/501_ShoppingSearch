@@ -168,7 +168,8 @@ def test_conflicting_counts_are_low_and_everything_is_none():
 
 def test_conflicting_content_same_dimension_is_low():
     q = parse_quantity("洗剤 900g 1.5kg")
-    assert q.confidence == "low" and q.count_total is None and q.content_amount is None
+    # WP16 U2a（SPEC Q14 改訂）: 内容量だけが決まらない low は総数・数え語を残す（content_ambiguous）。内容量は null のまま
+    assert q.confidence == "low" and q.low_reason == "content_ambiguous" and q.count_total == 1 and q.content_amount is None
     q = parse_quantity("水 500ml×24本 2L×12本")
     assert q.confidence == "low"
 

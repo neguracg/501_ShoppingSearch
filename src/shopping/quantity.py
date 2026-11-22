@@ -699,9 +699,19 @@ def _none(evidence: str = "") -> QuantityInfo:
     return QuantityInfo(confidence="none", evidence=evidence)
 
 
-# 未実装: 決定 2026-11-22 #1148 → plans/WP16_extract_then_classify.md（low でも読みを捨てず readings として残す）
-def _low(evidence: str) -> QuantityInfo:
-    return QuantityInfo(confidence="low", evidence=evidence)
+# 題名 low の理由のコード（WP16。QuantityInfo.low_reason。分岐は行でなくこのコードで分ける）。
+#   content_ambiguous … 総数は1通りに決まり、内容量だけが決まらない（同じ次元の内容量が食い違う。総数・数え語を残す＝U2a）
+#   multiple_totals   … 残った個数の群の総数が2通り以上（総数が 0 以下・MAX_PLAUSIBLE_COUNT 超も同じ出口）。U2b は採らない
+#   dropped_count     … 個数に採らなかった数が採用した総数と食い違う（P5）
+#   dimension_chain   … 個数が別の次元の量の鎖に付いている（M3）
+#   embedded_model・model_digits … 型番の数字との区別がつかない（E1・WP11-4）／solo_pack … 単独の NP が他の読みと一致しない（X1）
+#   unknown_counter … 未知の数え語（S4・P7）／dropped_link・oversize・decorated_measure・bundle_list・range・ambiguous・orphan_times … 読み取りの印（flags）
+def _low(evidence: str, reason: str, total: int | None = None, word: str | None = None) -> QuantityInfo:
+    """題名 low。total・word を渡すのは content_ambiguous（総数が決まっている）の時だけ。読みの一覧（readings）は parse_quantity が足す。"""
+    q = QuantityInfo(confidence="low", evidence=evidence, low_reason=reason)
+    if total is not None:
+        q.count_total, q.count_unit = total, word or "個"
+    return q
 
 
 def _resolve_amount(values: dict[float, bool], count: int) -> float | None:
@@ -758,7 +768,14 @@ def _standalone_measure_digits_in_model(s: str, groups: list[_Group]) -> bool:
 
 def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     """商品名 → 数量。basis（比べる単位）が内容量の次元で、名前にその次元の内容量があればそれを
-    content_* に使う（S5）。省略時は最初に書かれた次元。"""
+    content_* に使う（S5）。省略時は最初に書かれた次元。題名 low の時は読みの一覧（readings。WP16）も付ける（confidence の判定は変えない）。"""
+    q = _parse_title(text, basis)
+    if q.confidence == "low":
+        q.readings = title_readings(text)
+    return q
+
+
+def _parse_title(text: str, basis: str | None = None) -> QuantityInfo:
     s = _normalize(text)
     flags: list[str] = []
     dropped: list[float] = []
@@ -766,7 +783,7 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     embedded: list[tuple] = []
     toks = _tokens(s, flags, dropped, dropped_measures, embedded)
     if flags or _unknown_counter(s, toks):
-        return _low(s.strip()[:80])
+        return _low(s.strip()[:80], flags[0] if flags else "unknown_counter")
     if not toks:
         return _none()
     # 「30回分」は使用回数・換算の説明。計量値や他の個数があれば数えない（S1）
@@ -780,20 +797,20 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
     # 型番だけの題名（独立した 80L が無い）は従来どおり量にしない
     if embedded and any(len(g.toks) == 1 and g.toks[0].kind == "measure"
                         and ("measure", g.toks[0].dim, round(g.toks[0].n, 9)) in embedded for g in groups):
-        return _low(s.strip()[:80])
+        return _low(s.strip()[:80], "embedded_model")
     if _standalone_measure_digits_in_model(s, groups):      # WP11-4: 型番に単位が付かない形（IC6CL80 … 80L）
-        return _low(s.strip()[:80])
+        return _low(s.strip()[:80], "model_digits")
     evidence = " / ".join(dict.fromkeys(s[g.toks[0].start:g.toks[-1].end].strip() for g in groups))
     if flags and groups:                 # 食い違い・倍数の落ち（P0: 失敗の向きは単価不明）
-        return _low(evidence)
+        return _low(evidence, flags[0])
     # 単独の NP は個数の候補として持つが、他の読み方と一致しない限り high にしない（X1）
     solo = [g for g in groups if g.toks[0].solo_low]
     agreed = {_total(g) for g in groups if g.factors and not g.toks[0].solo_low}
     if any(_total(g) not in agreed for g in solo):
-        return _low(evidence)
+        return _low(evidence, "solo_pack")
     groups = [_drop_restated(g, flags, s) for g in groups]
     if flags and groups:
-        return _low(evidence)
+        return _low(evidence, flags[0])
 
     # --- 個数 ---
     cgroups = [g for g in groups if g.factors]
@@ -823,12 +840,16 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
                                           or _IRI_AFTER.match(s, g.factors[0].end)))]
     totals = {_total(g) for g in keep}
     if len(totals) > 1 or any(t <= 0 or t > MAX_PLAUSIBLE_COUNT for t in totals):
-        return _low(evidence)
+        return _low(evidence, "multiple_totals")
     total = next(iter(totals)) if keep else 1
     # P5 で個数に採らなかった「数字＋数え語」が採用した総数と食い違う時は、捨てた数が本当の個数かもしれない
     # （洗剤 500ml 12個送料無料）ので low。同じ数なら言い直しなので high のまま
     if any(d != total for d in dropped):
-        return _low(evidence)
+        return _low(evidence, "dropped_count")
+
+    # 総数が1通りに決まった後の low（内容量だけが決まらない形）は総数・数え語を残す（WP16 U2a。content_ambiguous）
+    main_chain = max(keep, key=lambda g: len(g.factors)) if keep else None
+    chain_word = next((t.word for t in main_chain.factors if t.kind == "count"), "個") if main_chain else "個"
 
     # --- 内容量（同じ次元の × でつながる寸法は大きい方。別々に書かれた値が食い違えば矛盾）---
     per_group: list[tuple[str, float, int, bool]] = []
@@ -864,18 +885,18 @@ def parse_quantity(text: str, basis: str | None = None) -> QuantityInfo:
         elif order[0] in amounts:
             dim = order[0]
         else:
-            return _low(evidence)
+            return _low(evidence, "content_ambiguous", total, chain_word)
         # WP12 M3: 採用する次元の量が個数と同じ鎖に無く（2000m）、個数は別の次元の量の鎖に付いている（2L×6本）時は、
         # 個数がどちらの量に掛かるのか決められない（ml の打ち間違い）ので low（P0 の食い違い）
         counted = {d for d, _, _, has in per_group if has}
         if counted and dim not in counted:
-            return _low(evidence)
+            return _low(evidence, "dimension_chain")
         amount = amounts[dim]
         # 採らなかった「数字＋計量単位」（最大700g・シングル_55m）が、採用した同じ次元の内容量（またはその総量）と
         # 食い違う時は、捨てた量が本当の内容量かもしれないので low（P0。個数の「捨てた数の検査」の内容量版）
         for d, v in dropped_measures:
             if d in amounts and v not in (amounts[d], round(amounts[d] * total, 9)):
-                return _low(evidence)
+                return _low(evidence, "content_ambiguous", total, chain_word)
 
     if keep:
         main = max(keep, key=lambda g: len(g.factors))
@@ -907,3 +928,25 @@ def count_readings(text: str) -> list[tuple[int, str]]:
         if 0 < total <= MAX_PLAUSIBLE_COUNT and (total, word) not in out:
             out.append((total, word))
     return out
+
+
+def content_readings(text: str) -> dict[str, list[float]]:
+    """題名から読める 1個あたり内容量の候補（次元 → 基準単位の値。群ごとの大きい方〔Q15〕・重複なし・小さい順）。count_readings の内容量版。
+    決めるのは parse_quantity だけで、ここは題名 low の「どの値が内容量かもしれないか」の印（WP16 readings）。"""
+    s = _normalize(text)
+    toks = _tokens(s, [], [], [], [])
+    out: dict[str, set] = {}
+    for g in _group(s, toks, []):
+        by: dict[str, float] = {}
+        for m in g.measures:
+            by[m.dim] = max(by.get(m.dim, 0.0), m.n)
+        for d, a in by.items():
+            out.setdefault(d, set()).add(round(a, 9))
+    return {d: sorted(v) for d, v in out.items()}
+
+
+def title_readings(text: str) -> dict:
+    """題名 low の読みの一覧（WP16 `quantity.readings`）: {"counts": [{"count", "count_unit"}…], "contents": {次元: [値…]}}。
+    印であって単価には使わない（使うのは U2a・U2b と counter_basis の仮定だけ）。"""
+    return {"counts": [{"count": n, "count_unit": w} for n, w in count_readings(text)],
+            "contents": content_readings(text)}
