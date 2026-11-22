@@ -9,6 +9,7 @@ from statistics import median
 from dataclasses import dataclass, field
 
 from . import counter_basis
+from .caption_adopt import adopt_u1_contents
 from .caption_quantity import read_offer_quantity
 from .inputs import check_desired_range, resolve_compare_basis
 from .models import Offer
@@ -32,17 +33,23 @@ PRICE_VARIES_NOTE = "選択肢によって価格が変わる。表示価格は�
 
 def unconfirmed_reasons(o: Offer, *, shipping: bool = False) -> list[str]:
     """「確認済み」でない理由（空なら確認済み）。単位価格の最安・注文の最安・to_check が呼ぶ唯一の判定（WP14）。
-    確認済み＝数量が商品名から high ∧ 説明欄の見出し付きの数量と食い違わない ∧ 補った内容量を価格の比較に使わない ∧ 1袋の中身が基準と一致する
-    ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
+    確認済み＝数量が商品名から high ∧ 説明欄の見出し付きの数量と食い違わない ∧ 補った内容量を価格の比較に使わない ∧ 題名 low の数量を使わない
+    ∧ 1袋の中身が基準と一致する ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
     理由の語: quantity_unknown / caption_conflict / price_varies / unit_price_outlier / quantity_from_caption / measure_from_caption /
-    pack_content_differs / shipping_separate / shipping_unknown（counter_assumed は注文案の換算の仮定で、案の側が足す。counter_basis.py）。"""
+    quantity_low / pack_content_differs / shipping_separate / shipping_unknown（counter_assumed は注文案の換算の仮定で、案の側が足す。counter_basis.py）。
+    WP16: 確認済みの定義は広げない（quantity_low は以前から確認済みでなかった題名 low の候補に仮の単価が付くようになった分の分類）。"""
     reasons: list[str] = []
     q = o.quantity
-    if q is None or q.confidence != "high":
+    if q is None:
+        reasons.append("quantity_unknown")
+    elif q.low_adopted:
+        reasons.append("quantity_low")      # 題名 low の読みを仮の数量として使った（U2a の総数・U2b の読み。confidence は low のまま）
+    elif q.confidence != "high":
         reasons.append("quantity_unknown")
     elif getattr(q, "source", "title") == "title+caption":
-        # 項目単位の補完（WP15 段B）。題名の個数は確認済みのまま。補った内容量を使う basis（単価の次元＝内容量の次元）の時だけ未確定
-        if o.unit_price_dimension is not None and o.unit_price_dimension == q.content_dimension:
+        # 項目単位の補完（WP15 段B）・各文の読み取り（WP16 U1）。題名の個数は確認済みのまま。補った内容量を使う basis（単価の次元が
+        # 補った内容量の次元のどれか。補った次元が複数でも全部）の時だけ未確定。題名に内容量がある候補は題名 high の内容量を補わない
+        if o.unit_price_dimension is not None and o.unit_price_dimension in (q.content_amounts or {}):
             reasons.append("measure_from_caption")
     elif getattr(q, "source", "title") != "title":
         reasons.append("quantity_from_caption")
@@ -81,6 +88,7 @@ UNIT_PRICE_REASON_TEXT = {
     "unit_price_outlier": "他の候補より桁違いに安い。数量の読み違いの疑い",
     "quantity_unknown": "数量が商品名から読めない",
     "measure_from_caption": "説明欄から補った内容量",
+    "quantity_low": "題名に食い違う数があり、読みの1つを仮に使った数量",
     "counter_assumed": "数え語の換算を仮定",
     "pack_content_differs": "1袋の中身が違う",
 }
@@ -88,6 +96,27 @@ UNIT_PRICE_REASON_TEXT = {
 
 def unit_price_reason_text(reasons: list[str]) -> str:
     return "・".join(UNIT_PRICE_REASON_TEXT.get(r, r) for r in reasons)
+
+
+def quantity_marks_text(q: dict) -> str:
+    """数量の印（WP16 §7。出力 dict の quantity の readings・caption_candidates）の表示文（Web・CLI 共通）。印は候補で確定値ではない。無ければ ""。"""
+    parts: list[str] = []
+    r = q.get("readings")
+    if r:
+        items = [f"{format_amount(c['count'])}{c['count_unit']}" for c in r.get("counts", [])]
+        items += [f"{format_amount(a)}{base_unit(d)}" for d, vals in r.get("contents", {}).items() for a in vals]
+        if items:
+            parts.append("題名の読み " + "・".join(items))
+    cands = q.get("caption_candidates") or []
+    if cands:
+        items = []
+        for c in cands:
+            one = "".join(x for x in (
+                None if c.get("count_total") is None else f"{format_amount(c['count_total'])}{c.get('count_unit') or ''}",
+                None if c.get("content_amount") is None else f"{format_amount(c['content_amount'])}{base_unit(c['content_dimension'])}") if x)
+            items.append(one)
+        parts.append("説明欄の値 " + "・".join(dict.fromkeys(i for i in items if i)))
+    return f"（{'。'.join(parts)}。候補で確定値ではない）" if parts else ""
 
 
 def unit_price_text(d: dict, key: str = "unit_price") -> str | None:
@@ -266,7 +295,7 @@ def _amount(offer: Offer, dimension: str):
     """basis の次元での量（count なら個数、それ以外は内容量×個数）。読めない/high でなければ None。
     名前に複数の次元が書かれていれば、basis の次元の内容量を使う（先頭の次元とは限らない。S5）。"""
     q = offer.quantity
-    if q is None or q.confidence != "high":
+    if q is None or (q.confidence != "high" and not q.low_adopted):      # 題名 low の仮の数量（U2a・U2b）も量は出す（単価は仮。quantity_low）
         return None
     if dimension == "count":
         amount = q.count_total
@@ -279,10 +308,13 @@ def _amount(offer: Offer, dimension: str):
 
 
 def _auto_basis(offers: list[Offer]) -> tuple[str, str]:
-    high = [o for o in offers if o.quantity is not None and o.quantity.confidence == "high"]
-    # 内容量の次元は題名から読めたものだけで数える（説明欄の見出し `長さ` で補った内容量〔title+caption〕は数えない。WP15 段B・Q7）
+    # 多数決は題名由来の量だけで数える（WP16 Q7）。分母は source が title・title+caption（後者は題名の部分＝個数だけの候補）、
+    # 内容量の次元の分子は title だけ（説明欄で補った内容量は数えない。WP15 段B）。source=caption の補完・題名 low の仮の数量（confidence が low）は
+    # 数えない（仮の量で基準が反転するのを防ぐ。測定: 51 語中 8 語が反転）
+    high = [o for o in offers if o.quantity is not None and o.quantity.confidence == "high"
+            and o.quantity.source in ("title", "title+caption")]
     dims = Counter(o.quantity.content_dimension for o in high
-                   if o.quantity.content_dimension in DISPLAY and o.quantity.source != "title+caption")
+                   if o.quantity.content_dimension in DISPLAY and o.quantity.source == "title")
     if dims:
         dim, n = dims.most_common(1)[0]
         if n * 2 > len(high):
@@ -310,7 +342,8 @@ SHIPPING_LINE_CAVEAT = ("送料無料ライン（3,980円など）は仮定し�
                         "送料込みにしていません（ラインを超えても送料がかかる商品がある: 楽天公式 FAQ "
                         "https://ichiba.faq.rakuten.net/detail/000013788 ）。送料額・発送目安は API に無いので商品ページで確認してください。")
 CAPTION_NOTE = "題名から数量が読めず、説明欄の見出し付きの記述から補完した数量。確認済みではない"
-MEASURE_NOTE = "題名の個数に、説明欄の見出し『長さ』の値を1個あたりの内容量として重ねた。確認済みではない"
+MEASURE_NOTE = "題名の個数に、説明欄の値を1個あたりの内容量として重ねた。確認済みではない"
+LOW_NOTE = "題名に食い違う数があり、読みの1つを仮に使った数量。確認済みではない"
 
 
 def _qty_label(o: Offer) -> str:
@@ -373,6 +406,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
             pre.append(f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）、")
         elif r == "measure_from_caption":
             pre.append(f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）、")
+        elif r == "quantity_low":
+            pre.append(f"題名に食い違う数がある。{_qty_label(o)}なら、")
         elif r == "counter_assumed":
             pre.append(f"{plan.notes.get(r, '')}、")
         elif r == "pack_content_differs":
@@ -422,6 +457,7 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                                      "（説明欄が 1 パックあたりの記述のこともある）",
                  "quantity_from_caption": f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）",
                  "measure_from_caption": f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）",
+                 "quantity_low": f"題名に食い違う数がある。{_qty_label(o)}なら（{LOW_NOTE}）。商品ページで確認",
                  "counter_assumed": f"{plan.notes.get('counter_assumed', '')}、この商品を{plan.n}個注文すると "
                                     f"{format_amount(round(plan.order_quantity, 1))}{plan.count_unit or ''}相当・{plan.order_total:,}円"
                                     "（換算の仮定。商品ページで確認）",
@@ -499,7 +535,7 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, name: str,
         label = {"shipping_separate": "送料別", "shipping_unknown": "送料不明", "price_varies": "選択肢で価格が変わる",
                  "unit_price_outlier": "数量の読み違いの疑い", "quantity_from_caption": "説明欄から補完した数量",
                  "caption_conflict": "題名と説明欄の数量が食い違う", "measure_from_caption": "説明欄から補った内容量",
-                 "counter_assumed": "数え語の換算を仮定", "pack_content_differs": "1袋の中身が違う"}
+                 "quantity_low": "題名 low の読みを仮に使った数量", "counter_assumed": "数え語の換算を仮定", "pack_content_differs": "1袋の中身が違う"}
         detail = "・".join(f"{label[k]} {v}件" for k, v in parts.items() if k in label)
         out.append(f"確認済み（数量が商品名から読め・価格が選択肢で変わらず・外れ値でなく・送料込み）の注文の候補がない"
                    f"（足りない条件: {detail}）。to_check に条件付きの候補を安い順に出した")
@@ -559,13 +595,16 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     notes.extend(term_notes)
 
     for o in candidates:
-        if o.quantity is None:
+        if o.quantity is None or o.quantity.u1_adopted:      # 前の比較で U1 を採用した候補は読み直す（採用は比較グループごとに 1 回だけ）
             o.quantity = read_offer_quantity(o)
         o.unit_price = None
         o.unit_price_label = None
         o.unit_price_dimension = None
         o.unit_price_outlier = False
         o.pack_content_differs = False
+
+    # U1 の (iii) 桁の照合と採用は比較グループ（絞り込み後の候補）の統計が要るのでここ（抽出は caption_quantity。WP16）。N・K は外れ値と同じ物差し
+    adopt_u1_contents(candidates, min_group=OUTLIER_MIN_GROUP, ratio=OUTLIER_RATIO)
 
     name, dim = fixed if fixed else _auto_basis(candidates)
     mult, label = DISPLAY[dim]
@@ -641,10 +680,19 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if from_caption:
         caveats.append(f"数量を説明欄の見出し付きの記述から補った候補: {len(from_caption)}件（題名から数量が読めなかった候補。"
                        "確認済みではないので、単位価格・注文の最安には選ばず、安い時は to_check に条件つきで出した）")
-    measured = [o for o in members if o.quantity.source == "title+caption" and o.unit_price_dimension == o.quantity.content_dimension]
+    measured = [o for o in members if o.quantity.confidence == "high" and o.quantity.source == "title+caption"
+                and o.unit_price_dimension in (o.quantity.content_amounts or {})]
     if measured:
-        caveats.append(f"内容量を説明欄の見出し『長さ』から補った候補: {len(measured)}件（題名の個数は確認済みのままだが、"
+        caveats.append(f"内容量を説明欄から補った候補（見出し『長さ』・各文の読み取り）: {len(measured)}件（題名の個数は確認済みのままだが、"
                        f"{name} あたりの単価は補った内容量を使うので仮。最安には選ばず、安い時は to_check に条件つきで出した）")
+    lowered = [o for o in members if o.quantity.low_adopted]
+    if lowered:
+        caveats.append(f"題名に食い違う数があり、読みの1つを仮の数量にした候補: {len(lowered)}件（確認済みではない。単価は仮で、"
+                       "最安には選ばず、安い時は to_check に条件つきで出した）")
+    marked = [o for o in candidates if o.quantity.caption_candidates or o.quantity.readings]
+    if marked:
+        caveats.append(f"説明欄・題名から読めたが採らなかった値（quantity.caption_candidates・quantity.readings）がある候補: {len(marked)}件"
+                       "（印であって確定値ではない。単価・注文案には使っていない）")
     hinted = [o for o in unknown if o.quantity.caption_candidate is not None]
     if hinted:
         caveats.append(f"題名から数量が読めず、説明欄の見出し付きの記述に数量がある候補: {len(hinted)}件（印と根拠だけで、"

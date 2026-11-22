@@ -29,10 +29,16 @@ class Assumption:
     text: str
     keep: bool = False        # True＝確認済みの最安との比較をせず必ず to_check に残す（量が読めて換算できる候補。Q20）。False＝より安くなり得る時だけ
 
+def _has_count(q) -> bool:
+    """個数が使える数量か: high、または題名 low の読みを仮の数量にした候補（WP16 U2a・U2b。未確定理由 quantity_low）。"""
+    return q is not None and q.count_total is not None and (q.confidence == "high" or q.low_adopted)
+
+
 def counted_as(o: Offer, counter: str) -> str | None:
-    """候補を basis=数え語 でどう数えるか。"count"（count_unit が数え語。a）／"pack"（packs に数え語がある。b）／None。"""
+    """候補を basis=数え語 でどう数えるか。"count"（count_unit が数え語。a）／"pack"（packs に数え語がある。b）／None。
+    題名 low の仮の数量（quantity_low）も、count_unit がその数え語なら (a) の候補（仮の単価で同じグループに並ぶ。Q20）。"""
     q = o.quantity
-    if q is None or q.confidence != "high" or q.count_total is None:
+    if not _has_count(q):
         return None
     if q.count_unit == counter:
         return "count"
@@ -86,7 +92,7 @@ def other_counters(offers: list[Offer], main_unit: str | None) -> list[str]:
     seen: dict[str, int] = {}
     for o in offers:
         q = o.quantity
-        if q is None or q.confidence != "high":
+        if q is None or not (q.confidence == "high" or q.low_adopted):
             continue
         for u in {q.count_unit, *(p.get("unit") for p in (q.packs or []))}:
             if u and u not in (main_unit, "個"):
@@ -119,6 +125,13 @@ def _source_text(pack_offers: list[Offer]) -> str:
     return f"{name} の商品名" if len(pack_offers) == 1 else f"{name} ほか {len(pack_offers) - 1}件の商品名"
 
 
+def _count_readings(q, o: Offer) -> list[tuple[int, str]]:
+    """題名 low の個数の読み（(総数, 数え語) の一覧）。quantity.readings（題名の読みの一覧。WP16）から。無ければ題名を読み直す。"""
+    if q.readings is not None:
+        return [(c["count"], c["count_unit"]) for c in q.readings.get("counts", [])]
+    return count_readings(o.item_name)
+
+
 def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: str
                        ) -> tuple[list[Assumption], str | None, list[Offer]]:
     """basis=数え語 で (a)(b) に入らない候補（others）の換算の仮定。(仮定の一覧, ①の根拠の説明 or None, 仮定を置かなかった候補)。
@@ -143,22 +156,29 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
             return None
         return Assumption(o, float(total), f"{lead}1{unit}が1{counter}なら{suffix}", keep=keep)
 
+    def same_counter(o: Offer, total: float, unit: str) -> Assumption | None:
+        """読みの数え語が basis の数え語と同じ（WP16 A16。48ロール を basis=ロール で）: 1 対 1 の換算を挟まず、その読みをそのまま仮定にする
+        （数え語の換算をしないので包装の語の制限は掛からない）。"""
+        if unit != counter:
+            return None
+        return Assumption(o, float(total), f"この商品が{total}{unit}なら（題名に食い違う数がある）", keep=False)
+
     for o in others:
         if o.price is None:
             continue
         q = o.quantity
         if q is not None and q.caption_candidate is not None:
             continue                       # 説明欄に見出し付きの数量がある（印と根拠だけの形。CAPTION_FILL_UNIT_PRICE=False）候補は caveats で案内済み
-        if q is not None and q.confidence == "high" and q.count_total:
+        if _has_count(q) and q.count_total:
             a = by_base(o, q.count_total, q.count_unit, True) or one_to_one(o, q.count_total, q.count_unit, True)
             if a is None:
                 skipped.append(o)          # 中身を数える語（本・枚）で 1袋の中身が決まらない: 仮定を置かない（unknown_offers に残す）
             else:
                 out.append(a)
         else:
-            readings = count_readings(o.item_name) if q is not None and q.confidence == "low" else []
-            if readings:       # low（題名に数が読めるが食い違う）: 読めた個数の読みを 1 つずつ仮定にする（どれかが安くなり得れば出す。Q20）
-                made = [by_base(o, n, w, False, "（題名に食い違う数がある）")
+            readings = _count_readings(q, o) if q is not None and q.confidence == "low" else []
+            if readings:       # low（題名に数が読めるが食い違う）: 読めた個数の読み（quantity.readings）を 1 つずつ仮定にする（どれかが安くなり得れば出す。Q20）
+                made = [same_counter(o, n, w) or by_base(o, n, w, False, "（題名に食い違う数がある）")
                         or one_to_one(o, n, w, False, f"この商品が{n}{w}で、", "（題名に食い違う数がある）") for n, w in readings]
                 made = [a for a in made if a is not None]
                 if made:
@@ -178,7 +198,7 @@ def assume_for_main(others: list[Offer], main_unit: str) -> list[Assumption]:
     out: list[Assumption] = []
     for o in others:
         q = o.quantity
-        if o.price is None or q is None or q.confidence != "high" or not q.count_total:
+        if o.price is None or not _has_count(q) or not q.count_total:
             continue
         if q.count_unit not in PACKAGING_WORDS:
             continue                       # 中身を数える語（足・枚・本）は 1 対 1 に置かない（個・パック・箱など包装の語だけ「1個が1枚なら」）

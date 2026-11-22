@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from shopping import service  # noqa: E402
 from shopping.inputs import DEFAULT_PAGES, MAX_HITS, MAX_PAGES  # noqa: E402
-from shopping.pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, unit_price_text  # noqa: E402
+from shopping.pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, quantity_marks_text, unit_price_text  # noqa: E402
 from shopping.quantity import format_amount  # noqa: E402
 
 
@@ -82,21 +82,26 @@ def _ship(o: dict) -> str:
 
 def _qty(o: dict) -> str:
     q = o.get("quantity") or {}
-    if q.get("confidence") not in ("high", "conflict"):       # conflict＝題名は high で説明欄と食い違う（数量は表示し、単価は仮）
+    low_used = q.get("confidence") == "low" and q.get("count_total") is not None      # 題名 low の読みを仮の数量にした（WP16 U2a・U2b）
+    marks = quantity_marks_text(q)
+    if q.get("confidence") not in ("high", "conflict") and not low_used:       # conflict＝題名は high で説明欄と食い違う（数量は表示し、単価は仮）
         hint = f"（説明欄に「{q['caption_evidence']}」・単価には使っていない）" if q.get("caption_candidate") else ""
-        return ("数量不明" if q.get("confidence") == "none" else "数量要確認") + hint
+        return ("数量不明" if q.get("confidence") == "none" else "数量要確認") + hint + marks
     text = f"{format_amount(q['count_total'])}{q['count_unit']}"
     if q.get("content_amount") is not None:
         text += (f" × {format_amount(q['content_amount'])}{q['content_unit']}"
                  f"（計 {format_amount(q['measure_total'])}{q['content_unit']}）")
-    if q.get("source") == "caption":
+    if low_used:
+        text += "【題名に食い違う数がある・読みの1つを仮に使った・確認済みではない" + (
+            "（説明欄: " + str(q["caption_evidence"]) + "）" if q.get("caption_evidence") else "") + "】"
+    elif q.get("source") == "caption":
         text += "【説明欄の記述から補完・確認済みではない: " + str(q.get("caption_evidence")) + "】"
     elif q.get("source") == "title+caption":              # 項目単位の補完（§7 W4）: 内容量だけ説明欄の見出し付きの値。個数は題名のまま
         text += "【内容量を説明欄から補った・確認済みではない: " + str(q.get("caption_evidence")) + "】"
     if q.get("caption_conflict"):
         text += "【説明欄の「" + str(q.get("caption_evidence")) + "」と食い違い・要確認】"
     up = unit_price_text(o)
-    return text + (f"（{up}）" if up else "")
+    return text + (f"（{up}）" if up else "") + marks
 
 
 def _offer_line(o: dict) -> str:

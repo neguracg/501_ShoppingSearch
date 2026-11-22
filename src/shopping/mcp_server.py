@@ -44,6 +44,8 @@ _ORDER_GUIDE = (
     "（理由 unit_price_unconfirmed_reasons を添える。注文案は order_unit_price・provisional_order_unit_price も同じ）。"
     "order_total_kind が item_subtotal（送料別・不明の商品小計）・unconfirmed_total（送料込みだが単価が未確定。表示価格×個数）の金額を支払総額と呼ばない"
     "（支払総額は payment_total がある時＝確認済みの案だけ）。"
+    "quantity.readings（題名 low の読み）・quantity.caption_candidates（説明欄から読めたが採らなかった値）は候補で確定値ではない。"
+    "unit_price_unconfirmed_reasons に quantity_low がある単価は、題名に食い違う数があり読みの1つを仮に使った値で仮として伝える。"
     "compare_offers の groups・unknown_offers は件数で切らず全件返す。"
 )
 # compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
