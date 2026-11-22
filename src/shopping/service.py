@@ -100,7 +100,12 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
             "content_amounts": dict(q.content_amounts or {}),
             "source": q.source, "caption_evidence": q.caption_evidence, "caption_conflict": q.caption_conflict,
             "packs": [dict(x) for x in (q.packs or [])],                        # 包装の数（§7。常に出す。読めなければ []）
-            "caption_candidate": None if q.caption_candidate is None else dict(q.caption_candidate)},
+            "caption_candidate": None if q.caption_candidate is None else dict(q.caption_candidate),
+            # WP16（§7）: 印であって確定値ではない。low_reason・readings は題名 low の時だけ値（他は null）。caption_candidates は常に出す（無ければ []）
+            "low_reason": q.low_reason,
+            "readings": None if q.readings is None else {"counts": [dict(c) for c in q.readings.get("counts", [])],
+                                                        "contents": {d: list(v) for d, v in q.readings.get("contents", {}).items()}},
+            "caption_candidates": [dict(c) for c in q.caption_candidates]},
         **price_fields,
         "unit_price_label": offer.unit_price_label,
         "unit_price_dimension": offer.unit_price_dimension,
