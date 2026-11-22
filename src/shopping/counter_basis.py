@@ -92,7 +92,7 @@ def other_counters(offers: list[Offer], main_unit: str | None) -> list[str]:
     seen: dict[str, int] = {}
     for o in offers:
         q = o.quantity
-        if q is None or not (q.confidence == "high" or q.low_adopted):
+        if q is None or q.confidence != "high":
             continue
         for u in {q.count_unit, *(p.get("unit") for p in (q.packs or []))}:
             if u and u not in (main_unit, "個"):
@@ -169,7 +169,7 @@ def assume_for_counter(others: list[Offer], pack_offers: list[Offer], counter: s
         q = o.quantity
         if q is not None and q.caption_candidate is not None:
             continue                       # 説明欄に見出し付きの数量がある（印と根拠だけの形。CAPTION_FILL_UNIT_PRICE=False）候補は caveats で案内済み
-        if _has_count(q) and q.count_total:
+        if q is not None and q.confidence == "high" and q.count_total:
             a = by_base(o, q.count_total, q.count_unit, True) or one_to_one(o, q.count_total, q.count_unit, True)
             if a is None:
                 skipped.append(o)          # 中身を数える語（本・枚）で 1袋の中身が決まらない: 仮定を置かない（unknown_offers に残す）
@@ -198,7 +198,7 @@ def assume_for_main(others: list[Offer], main_unit: str) -> list[Assumption]:
     out: list[Assumption] = []
     for o in others:
         q = o.quantity
-        if o.price is None or not _has_count(q) or not q.count_total:
+        if o.price is None or q is None or q.confidence != "high" or not q.count_total:
             continue
         if q.count_unit not in PACKAGING_WORDS:
             continue                       # 中身を数える語（足・枚・本）は 1 対 1 に置かない（個・パック・箱など包装の語だけ「1個が1枚なら」）

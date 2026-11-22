@@ -37,15 +37,15 @@ _ORDER_GUIDE = (
     "紙幅・サイズなどの仕様は道具が判定しない。各候補の caption にある見出し付きの仕様（例: ■ロールサイズ：幅114mm×長さ100m）を呼び出し側が照合し、"
     "違う可能性がある候補は同一品と分けて示す。"
     "quantity.source が caption の候補は題名から数量が読めず説明欄から補った数量で、確認済みではない（caption_evidence が根拠）。"
-    "quantity.source が title+caption の候補は、個数は題名・内容量（見出し『長さ』）だけ説明欄から補った値で、その内容量を使う単価（basis=m）は仮"
-    "（measure_from_caption。basis がロール・個なら確認済みのまま）。"
+    "quantity.source が title+caption の候補は、個数は題名・内容量だけ説明欄から補った値（見出し『長さ』・各文の読み取り）で、その内容量を使う単価（basis=m）は仮"
+    "（measure_from_caption。basis がロール・個なら確認済みのまま）。題名 low の読みを説明欄で選んだ候補は confidence が low のまま、単価は quantity_low で仮。"
     "quantity.caption_conflict が true の候補は題名の数量と説明欄が食い違うので商品ページで確認を促す（quantity.confidence は conflict）。"
     "unit_price が null で provisional_unit_price がある候補（unit_price_status が unconfirmed）の単価は仮の値で、確定値として伝えない"
     "（理由 unit_price_unconfirmed_reasons を添える。注文案は order_unit_price・provisional_order_unit_price も同じ）。"
     "order_total_kind が item_subtotal（送料別・不明の商品小計）・unconfirmed_total（送料込みだが単価が未確定。表示価格×個数）の金額を支払総額と呼ばない"
     "（支払総額は payment_total がある時＝確認済みの案だけ）。"
-    "quantity.readings（題名 low の読み）・quantity.caption_candidates（説明欄から読めたが採らなかった値）は候補で確定値ではない。"
-    "unit_price_unconfirmed_reasons に quantity_low がある単価は、題名に食い違う数があり読みの1つを仮に使った値で仮として伝える。"
+    "quantity.readings（題名 low の読み）・quantity.caption_candidates（説明欄から読めたが採らなかった値）は候補で確定値ではなく、"
+    "unit_price_unconfirmed_reasons に quantity_low がある単価は題名に食い違う数があり読みの1つを仮に使った値なので仮として伝える。"
     "compare_offers の groups・unknown_offers は件数で切らず全件返す。"
 )
 # compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
@@ -146,7 +146,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "max_results は返す件数の上限で、省略すると取得した全件を返す。"
             "各候補に商品固有URL(url)、価格、送料区分(shipping_status: included=送料込み/"
             "separate=送料別/unknown)、商品名（足りない時は説明欄の見出し付きの値）から読んだ数量(quantity: count_total=総個数、content_amount=1個あたり内容量、"
-            "content_dimension/content_unit=容量ml・重さg・長さm・電力W等、measure_total=総量。confidenceがhighの時だけ値が入る)が付く。"
+            "content_dimension/content_unit=容量ml・重さg・長さm・電力W等、measure_total=総量。値が確定するのはconfidenceがhighの時だけ。題名lowの仮の数量はquantity_low・readingsで示す)が付く。"
             "quantity.confidence が high でない候補（conflict を含む）は単価が不明・未確定なので、最安・おすすめとして示さない"
             "（示す時は理由と『商品ページで確認』を添える）。"
             + _SEARCH_GUIDE +

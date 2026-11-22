@@ -355,7 +355,7 @@ def _qty_label(o: Offer) -> str:
 
 def _assumed_reasons(reasons: list[str]) -> list[str]:
     """換算の仮定を置いた案の理由（counter_basis.py）。数量が読めない（quantity_unknown）は仮定で置き換え、送料の理由の前に counter_assumed を入れる。"""
-    base = [r for r in reasons if r != "quantity_unknown"]
+    base = [r for r in reasons if r not in ("quantity_unknown", "quantity_low")]       # 題名 low の仮の数量はここで仮定に置き換える（Q20）
     ship = [r for r in base if r in _SHIPPING_REASONS]
     return [r for r in base if r not in _SHIPPING_REASONS] + ["counter_assumed"] + ship
 

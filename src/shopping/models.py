@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 @dataclass
 class QuantityInfo:
     """商品名から読み取った数量。個数 × 1個あたり内容量。商品の意味（種類・仕様）は持たない。"""
-    count_total: int | None = None         # 総個数。confidence != "high" なら None
+    count_total: int | None = None         # 総個数。confidence が high のほか、題名 low で読みを仮の数量にした時（low_adopted。WP16 U2a・U2b）に入る
     count_unit: str = "個"                 # 数え語（無ければ "個"）
     content_amount: float | None = None    # 1個あたり内容量（基準単位）。無い/読めない時は None
     content_dimension: str | None = None   # volume / mass / length / power / charge / energy / None

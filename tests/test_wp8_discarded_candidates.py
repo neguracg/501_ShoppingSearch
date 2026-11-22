@@ -128,7 +128,9 @@ HIGH = [
 def test_discarded_candidate_that_disagrees_with_the_adopted_value_is_low(mech, title):
     q = parse_quantity(title)
     assert q.confidence == "low", (mech, title, q)
-    assert q.count_total is None and q.measure_total is None
+    # WP16 U2a（SPEC Q14 改訂）: 内容量だけが決まらない low（content_ambiguous）は総数を残す。内容量・総量は null のまま
+    assert q.measure_total is None and q.content_amount is None
+    assert q.count_total is None or q.low_reason == "content_ambiguous"
 
 
 @pytest.mark.parametrize("title,count,amount", HIGH)
