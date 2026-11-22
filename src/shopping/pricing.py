@@ -322,14 +322,27 @@ def _auto_basis(offers: list[Offer]) -> tuple[str, str]:
     return "個", "count"
 
 
+# 数量が仮の候補（B1。独立レビュー）。仮の数量から出た単価は確定の結果（確認済みの集合・外れ値の中央値・主グループの選択）に影響させない。
+# 理由の語は unconfirmed_reasons と同じ（counter_assumed は注文案の側の理由で、候補の理由には出ない）
+PROVISIONAL_QUANTITY = ("quantity_low", "measure_from_caption", "quantity_from_caption", "counter_assumed")
+
+
+def quantity_is_provisional(o: Offer) -> bool:
+    """数量（量の読み）が仮の候補。外れ値の中央値・主グループの選択の数に入れない（price_varies・caption_conflict は数量が題名由来なので仮ではない）。"""
+    return any(r in PROVISIONAL_QUANTITY for r in unconfirmed_reasons(o))
+
+
 def mark_unit_price_outliers(members: list[Offer]) -> list[Offer]:
     """単位価格が出ている候補（同じ比較グループ）のうち、中央値の 1/OUTLIER_RATIO 未満のものに
-    unit_price_outlier を立てて返す。件数が OUTLIER_MIN_GROUP 未満なら何もしない。判定の実装はここだけ
-    （表示側は印を出すだけ）。高すぎる側は最安の誤りにならないので扱わない。"""
+    unit_price_outlier を立てて返す。中央値と件数 N（OUTLIER_MIN_GROUP）は数量が仮でない候補だけで取る（B1: 仮の単価が中央値を動かし、
+    確認済みの最安が外れ値になるのを防ぐ。仮の候補にも、その中央値に対して印は付ける）。出力で単価が null になる候補（選択肢で価格が変わる・
+    題名と説明欄が食い違う）は数量が題名由来なので数える。N 件未満なら何もしない。判定の実装はここだけ（表示側は印を出すだけ）。
+    高すぎる側は最安の誤りにならないので扱わない。"""
     ranked = [o for o in members if o.unit_price is not None and not o.unit_price_outlier]
-    if len(ranked) < OUTLIER_MIN_GROUP:
+    firm = [o for o in ranked if not quantity_is_provisional(o)]
+    if len(firm) < OUTLIER_MIN_GROUP:
         return []
-    limit = median(o.unit_price for o in ranked) / OUTLIER_RATIO
+    limit = median(o.unit_price for o in firm) / OUTLIER_RATIO
     flagged = [o for o in ranked if o.unit_price < limit]
     for o in flagged:
         o.unit_price_outlier = True
@@ -550,13 +563,14 @@ COUNT_GROUP_CAVEAT = ("数え方の違う候補（{others}）は比べていま�
 
 
 def _main_group(groups: list[ComparisonGroup], by_unit: bool = False) -> ComparisonGroup | None:
-    """複数の数え語グループがある時の主グループ（WP14 W3 の改訂）。単位価格が出た候補の数が最多、同数なら確認済みの候補が多い方、
+    """複数の数え語グループがある時の主グループ（WP14 W3 の改訂）。単位価格が出た候補（数量が仮でない候補。B1: 仮の数量はグループには並ぶが
+    選択の数に入れない）の数が最多、同数なら確認済みの候補が多い方、
     さらに同じなら最安の注文額（希望量が無ければ商品価格の最安）が安い方（それも同じなら数え語の順）。グループが 1 つならそれ。"""
     if not groups:
         return None
 
     def key(g: ComparisonGroup):
-        ranked = [o for o in g.offers if o.unit_price is not None]
+        ranked = [o for o in g.offers if o.unit_price is not None and not quantity_is_provisional(o)]
         prices = [o.price for o in g.offers if o.price is not None]
         cheapest = ((_unit_raw(g.cheapest_order) if by_unit else g.cheapest_order.order_total)
                     if g.cheapest_order else (min(prices) if prices else 10**12))

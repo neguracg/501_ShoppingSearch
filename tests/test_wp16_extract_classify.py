@@ -287,3 +287,65 @@ def test_marks_and_provisional_display():
 def test_order_guide_says_marks_are_candidates_and_description_stays_within_2000():
     assert "quantity.readings" in mcp_server._ORDER_GUIDE and "quantity_low" in mcp_server._ORDER_GUIDE
     assert len(mcp_server._ORDER_POINTER) < 2000
+
+
+# ---- B1（独立レビュー）: 仮の値は確定の結果（外れ値の中央値・主グループ・確認済みの最安）に影響させない ----
+
+def _firm_rolls(n=4, price=1200, start=0):
+    return [offer(f"f{start + i}", "トイレットペーパー 12ロール", "", price) for i in range(n)]       # 1ロール 100 円（確認済み）
+
+
+def test_provisional_unit_prices_do_not_enter_the_outlier_median():
+    firm = _firm_rolls() + [offer("cheap", "トイレットペーパー 12ロール", "", 240)]                  # 1ロール 20 円。確認済みの最安
+    prov = [offer(f"p{i}", "トイレットペーパー", "内容量:1ロール", 5000) for i in range(6)]            # 説明欄から補った数量＝仮の単価 5000 円/ロール
+    c = compare(firm + prov)
+    assert all(o.quantity.source == "caption" for o in prov)
+    assert not any(o.unit_price_outlier for o in firm + prov)                                       # 仮の単価で中央値が 5000 に動いて確認済みが外れ値になることはない
+    assert c.cheapest_unit_price.mall_item_code == "cheap"
+
+
+def test_provisional_candidates_are_flagged_against_the_firm_median_but_not_counted_for_n():
+    firm = _firm_rolls()
+    low_price = offer("lowprov", "トイレットペーパー", "内容量:1ロール", 5)                              # 仮の単価 5 円/ロール（確認済みの中央値 100 の 1/10 未満）
+    compare(firm + [low_price])
+    assert low_price.unit_price_outlier and not any(o.unit_price_outlier for o in firm)
+    # 数量が仮でない候補が N 件（4）未満なら、仮の候補をいくら足しても判定しない
+    few = _firm_rolls(3)
+    prov = [offer(f"p{i}", "トイレットペーパー", "内容量:1ロール", 5000) for i in range(6)] + [low_price]
+    compare(few + prov)
+    assert not any(o.unit_price_outlier for o in few + prov)
+
+
+def test_main_group_is_chosen_by_candidates_with_a_firm_quantity():
+    rolls = [offer(f"r{i}", "トイレットペーパー 12ロール", "", 1200) for i in range(3)]
+    pieces = [offer(f"h{i}", "割りばし 100本", "", 300) for i in range(2)] + \
+             [offer(f"hp{i}", "割りばし", "内容量:1本", 300) for i in range(4)]                       # 本 は仮の単価が 4 件で、並ぶ数は 6 件
+    c = compare(rolls + pieces)
+    assert c.main_count_unit == "ロール"                                                              # 仮の単価は数に入れない（3 件 > 2 件）
+    assert {g.count_unit: len(g.offers) for g in c.groups} == {"ロール": 3, "本": 6}               # グループには並ぶ
+
+
+def test_default_one_does_not_keep_a_total():
+    for t in ("トイレットペーパー シングル 75m 150m", "洗剤 900g 1.5kg"):
+        q = parse_quantity(t)
+        assert q.confidence == "low" and q.low_reason == "content_ambiguous"
+        assert q.count_total is None and not q.low_adopted and q.readings["counts"] == []
+        assert q.readings["contents"]                                                               # readings は出す
+    o = offer("d", "トイレットペーパー シングル 75m 150m", "")
+    compare([o], basis="個")
+    assert o.unit_price is None and "quantity_low" not in unconfirmed_reasons(o)
+    # 個数の読みがある時は総数を残す（U2a）
+    assert parse_quantity("トイレットペーパー 48ロール シングル 75m 150m").count_total == 48
+
+
+def test_u1_count_agreement_applies_to_every_dimension_of_a_sentence():
+    # 個数つきの文（12ロール 50m 500g）の個数は題名の総数 48 と違う。2 つ目の次元（mass）の値も採用待ちにしない
+    o = offer("c1", "トイレットペーパー 48ロール", "12ロール 50m 500g")
+    q = read_offer_quantity(o)
+    assert q.u1_pending == {}
+    # 個数が題名と一致する文は全次元が採用待ち
+    q2 = read_offer_quantity(offer("c2", "トイレットペーパー 48ロール", "48ロール 50m 500g"))
+    assert set(q2.u1_pending) == {"length", "mass"}
+    # 個数つきの文が食い違っていても、個数の無い文の同じ次元の値は採用待ちになる
+    q3 = read_offer_quantity(offer("c3", "トイレットペーパー 48ロール", "12ロール 50m 500g。500g"))
+    assert set(q3.u1_pending) == {"mass"}

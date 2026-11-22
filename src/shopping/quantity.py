@@ -700,14 +700,15 @@ def _none(evidence: str = "") -> QuantityInfo:
 
 
 # 題名 low の理由のコード（WP16。QuantityInfo.low_reason。分岐は行でなくこのコードで分ける）。
-#   content_ambiguous … 総数は1通りに決まり、内容量だけが決まらない（同じ次元の内容量が食い違う。総数・数え語を残す＝U2a）
+#   content_ambiguous … 総数は1通りに決まり、内容量だけが決まらない（同じ次元の内容量が食い違う）。題名に個数の読みがある時は総数・数え語を残す＝U2a
+#                        （個数の読みが無く既定の 1個 になる形は総数を残さない。readings だけ出る）
 #   multiple_totals   … 残った個数の群の総数が2通り以上（総数が 0 以下・MAX_PLAUSIBLE_COUNT 超も同じ出口）。U2b は採らない
 #   dropped_count     … 個数に採らなかった数が採用した総数と食い違う（P5）
 #   dimension_chain   … 個数が別の次元の量の鎖に付いている（M3）
 #   embedded_model・model_digits … 型番の数字との区別がつかない（E1・WP11-4）／solo_pack … 単独の NP が他の読みと一致しない（X1）
 #   unknown_counter … 未知の数え語（S4・P7）／dropped_link・oversize・decorated_measure・bundle_list・range・ambiguous・orphan_times … 読み取りの印（flags）
 def _low(evidence: str, reason: str, total: int | None = None, word: str | None = None) -> QuantityInfo:
-    """題名 low。total・word を渡すのは content_ambiguous（総数が決まっている）の時だけ。読みの一覧（readings）は parse_quantity が足す。"""
+    """題名 low。total・word を渡すのは content_ambiguous（総数が決まっていて、題名に個数の読みがある）の時だけ。読みの一覧（readings）は parse_quantity が足す。"""
     q = QuantityInfo(confidence="low", evidence=evidence, low_reason=reason)
     if total is not None:
         q.count_total, q.count_unit = total, word or "個"
@@ -847,9 +848,11 @@ def _parse_title(text: str, basis: str | None = None) -> QuantityInfo:
     if any(d != total for d in dropped):
         return _low(evidence, "dropped_count")
 
-    # 総数が1通りに決まった後の low（内容量だけが決まらない形）は総数・数え語を残す（WP16 U2a。content_ambiguous）
+    # 総数が1通りに決まった後の low（内容量だけが決まらない形）は総数・数え語を残す（WP16 U2a。content_ambiguous）。
+    # ただし題名に個数の読みがある時だけ（keep が空＝既定の 1個 になる形は総数を残さない。抽出された情報が無いので仮の数量にしない。B1・C4）
     main_chain = max(keep, key=lambda g: len(g.factors)) if keep else None
     chain_word = next((t.word for t in main_chain.factors if t.kind == "count"), "個") if main_chain else "個"
+    ambiguous_total = total if keep else None
 
     # --- 内容量（同じ次元の × でつながる寸法は大きい方。別々に書かれた値が食い違えば矛盾）---
     per_group: list[tuple[str, float, int, bool]] = []
@@ -885,7 +888,7 @@ def _parse_title(text: str, basis: str | None = None) -> QuantityInfo:
         elif order[0] in amounts:
             dim = order[0]
         else:
-            return _low(evidence, "content_ambiguous", total, chain_word)
+            return _low(evidence, "content_ambiguous", ambiguous_total, chain_word)
         # WP12 M3: 採用する次元の量が個数と同じ鎖に無く（2000m）、個数は別の次元の量の鎖に付いている（2L×6本）時は、
         # 個数がどちらの量に掛かるのか決められない（ml の打ち間違い）ので low（P0 の食い違い）
         counted = {d for d, _, _, has in per_group if has}
@@ -896,7 +899,7 @@ def _parse_title(text: str, basis: str | None = None) -> QuantityInfo:
         # 食い違う時は、捨てた量が本当の内容量かもしれないので low（P0。個数の「捨てた数の検査」の内容量版）
         for d, v in dropped_measures:
             if d in amounts and v not in (amounts[d], round(amounts[d] * total, 9)):
-                return _low(evidence, "content_ambiguous", total, chain_word)
+                return _low(evidence, "content_ambiguous", ambiguous_total, chain_word)
 
     if keep:
         main = max(keep, key=lambda g: len(g.factors))

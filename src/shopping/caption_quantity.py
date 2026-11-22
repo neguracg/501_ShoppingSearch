@@ -323,13 +323,16 @@ def read_offer_quantity(offer: Offer) -> QuantityInfo:
             adopt_count, adopt_fill = (q.count_total, q.count_unit), {"length": round(item.info.content_amount, 9)}
         else:
             # U1 (ii)(i): 個数つきの文の内容量は、その文の個数が題名の総数と一致する時だけ候補にする。残った同じ次元の値が 1 通りなら採用待ち
-            by_dim: dict[str, list] = {}
-            for _, d, c in cands:
-                if d is not None and (c["count_total"] is None or c["count_total"] == q.count_total):
-                    by_dim.setdefault(d, []).append(c)
-            for d, cs in by_dim.items():
-                if len({round(c["content_amount"], 9) for c in cs}) == 1:
-                    pending[d] = {"amount": round(cs[0]["content_amount"], 9), "evidence": cs[0]["evidence"]}
+            # 個数つきの文は、文の全次元に効かせる（2 つ目以降の次元の印の dict は個数を持たないので、文の個数で見る。C1）。重複除去の前の文から集める
+            by_dim: dict[str, list[tuple[float, str]]] = {}
+            for r in sents:
+                if r.counted and r.info.count_total != q.count_total:
+                    continue
+                for d, a in (r.info.content_amounts or {}).items():
+                    by_dim.setdefault(d, []).append((round(a, 9), r.text[:80]))
+            for d, rows in by_dim.items():
+                if len({a for a, _ in rows}) == 1:
+                    pending[d] = {"amount": rows[0][0], "evidence": rows[0][1]}
     if q.confidence == "high":
         adopt_count = (q.count_total, q.count_unit)             # 題名の個数と同じ個数だけの値は印に残さない（新しい情報が無い）
         if cap is not None and _conflicts(q, cap.info):
