@@ -15,7 +15,7 @@ mcp_server.INSTRUCTIONS・build_server の tools/list（in-process）。数量�
                basis が個・ロールの比較は確認済みのまま・単価は確定値、basis=m の単価だけ仮（measure_from_caption）で
                最安・注文の最安に選ばず to_check に条件つき。
   Q7           自動 basis は題名から読めた内容量だけで過半を判定（補った内容量は個数だけの候補として数える。
-               source="caption" の補完は従来どおり数える）。
+               WP16 の改訂: source="caption" の補完も数えない。2026-11-22 に直した）。
   §7 包装の数   quantity.packs（F1〜F3・読めない時 []・総数と confidence は不変・キーは常に出す）。
   AC20・Q20    basis=袋: (a) count_unit=袋 と (b) packs に袋がある候補を同じグループで比べる。1袋の中身が基準と一致する
                候補だけ確認済み（基準＝最多の値。同数なら確認済みの最安の注文額が安い方）。食い違い=pack_content_differs
@@ -362,15 +362,17 @@ def test_q7_title_derived_content_still_decides_and_filled_stays_in_denominator(
     assert c2["basis"] == "個"
 
 
-def test_q7_title_none_caption_fill_still_counts():
-    # Q7: source="caption"（題名が none の補完）は従来どおり数える。水 2 件（題名なし・説明欄「内容量：500ml×24本」）
-    # ＋題名 2L×6本 の 3 件が全部 volume → ml。数えないなら 1/3 で 個 になる。
-    offers = [_o("a", "天然水 おすすめ A店", 3000, caption="内容量：500ml×24本"),
-              _o("b", "天然水 おすすめ B店", 3200, caption="内容量：500ml×24本"),
-              _o("c", "天然水 2L×6本 C店", 2400)]
+def test_q7_title_none_caption_fill_is_not_counted_since_wp16():
+    # Q7（WP16 で改訂。旧: 「source="caption" は従来どおり数える」）: 多数決（分母も分子も）は題名由来（source=title）の量だけで数え、
+    # source="caption"（題名が none の補完）は数えない（SPEC §8 Q7「WP16」の段）。旧の構成（補完 2 件＋題名 2L×6本）は
+    # 数えても数えなくても ml なので区別できず、数えるなら ml・数えないなら 個 になる構成に直した（2026-11-22・SPEC の WP16 改訂に基づく）。
+    # 題名由来: 水 2L×6本（体積）1 件・電池 40本（個数だけ）1 件。題名 none の補完 3 件（説明欄「内容量：500ml×24本」）。
+    # 数えるなら 4/5 が体積で ml。数えないなら 1/2（ちょうど半数）で 個。
+    offers = [_o("c", "天然水 2L×6本 C店", 3000), _o("d", "単3電池 40本 D店", 1000)] + [
+        _o(f"n{i}", f"天然水 おすすめ N{i}店", 3000 + i, caption="内容量：500ml×24本") for i in (1, 2, 3)]
     c, _ = _cmp(offers)
-    assert _by_name(c, "天然水 おすすめ A店")["quantity"]["source"] == "caption"
-    assert c["basis"] == "ml"
+    assert _by_name(c, "天然水 おすすめ N1店")["quantity"]["source"] == "caption"   # 補完そのものは起きている
+    assert c["basis"] == "個"
 
 
 # ---- R9: 題名の読み取りの変形は採らない ----

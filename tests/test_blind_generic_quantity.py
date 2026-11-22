@@ -354,8 +354,9 @@ def test_parse_content_only_means_single_piece(text, amount, unit, dim):
 
 
 CONFLICT_CASES = [
-    "飲料 500ml 2L ×6本",  # 同じ次元(体積)で値が違う内容量（×でつながない並記）
-    "洗濯洗剤 詰め替え 900g 1000g ×3袋",
+    # WP16 改訂（SPEC §7「題名 low の出力」U2a・Q14）: 総数が1通りで内容量だけ食い違う（content_ambiguous）形
+    # `飲料 500ml 2L ×6本`・`洗濯洗剤 詰め替え 900g 1000g ×3袋` は総数・数え語を残すようになった（下の別試験へ移した）。
+    # 総数が複数（multiple_totals）の形だけが、従来どおり総数も null の low として残る。
     "単3電池 40本 48本",  # 総数が食い違う個数表記
     "トイレットペーパー 12ロール 18ロール",
 ]
@@ -363,10 +364,30 @@ CONFLICT_CASES = [
 
 @pytest.mark.parametrize("text", CONFLICT_CASES)
 def test_parse_conflict_is_low_and_nulls(text):
-    # §7 矛盾 → low、総数・内容量を null。Q14: content_dimension・content_unit も None
+    # §7 矛盾 → low、総数・内容量を null。Q14: content_dimension・content_unit も None（総数が複数＝multiple_totals の形）
     q = _parse(text)
     assert _conf(q) == "low"
     assert q.count_total is None
+    assert q.content_amount is None
+    assert q.measure_total is None
+    assert q.content_dimension is None
+    assert q.content_unit is None
+
+
+@pytest.mark.parametrize(
+    "text,count,unit",
+    [
+        ("飲料 500ml 2L ×6本", 6, "本"),  # 同じ次元(体積)で値が違う内容量（×でつながない並記）
+        ("洗濯洗剤 詰め替え 900g 1000g ×3袋", 3, "袋"),
+    ],
+)
+def test_parse_content_conflict_keeps_total_and_nulls_content(text, count, unit):
+    # WP16 で改訂した契約（SPEC §7 U2a・Q14 の改訂）: 総数は1通りで内容量だけ食い違う（low_reason=content_ambiguous）→
+    # confidence は low のまま、総数・数え語は残し、内容量・measure_total・次元・単位は None。
+    # （旧: 総数も null。この改訂に合わせて直した。2026-11-22・SPEC の WP16 改訂コミットに基づく）
+    q = _parse(text)
+    assert _conf(q) == "low"
+    assert q.count_total == count and q.count_unit == unit
     assert q.content_amount is None
     assert q.measure_total is None
     assert q.content_dimension is None
@@ -1079,7 +1100,11 @@ def test_s3_total_alongside_breakdown_is_not_a_conflict(text, count, cunit, amou
 def test_s3_mismatching_total_is_still_low(text):
     q = _parse(text)
     assert _conf(q) == "low", text
-    assert q.count_total is None and q.content_amount is None and q.measure_total is None
+    assert q.content_amount is None and q.measure_total is None
+    # WP16 改訂（SPEC §7 Q14）: 総数が残るのは low_reason=content_ambiguous の時だけ。この形（同じ次元の内容量 12kg と 5kg が
+    # 食い違う）が content_ambiguous か他の出口かは SPEC が決めていない（Oracle不足 O1）ので、総数 null の断定は外し条件つきにした
+    if q.count_total is not None:
+        assert q.low_reason == "content_ambiguous", text
 
 
 def test_s3_rice_compare_unit_price():
@@ -2028,7 +2053,9 @@ def test_wp14_two_agreeing_headings_are_read():
 
 
 def test_wp14_caption_is_not_used_for_low_title():
-    # §7 W4: 題名が low（題名の中に食い違う数がある）には使わない
+    # §7 W4: 題名が low（題名の中に食い違う数がある）の候補には、数量全体の補完（source=caption）は使わない。
+    # WP16 改訂: 題名 low（content_ambiguous）は U2b で説明欄の個数が readings.counts と一致する時だけ仮の数量になるが、
+    # ここの説明欄 `内容量：6袋` は読み（3袋）と一致しないので補われない（この試験の期待値は不変。コメントだけ改訂）
     low_title = "洗濯洗剤 900g 1000g ×3袋"
     cap = _caption_offer(low_title, "内容量：6袋", 3000)
     r = _compare([cap, _offer(D1, 3000)])
