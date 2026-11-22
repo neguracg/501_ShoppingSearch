@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from .models import Offer, QuantityInfo
 from .quantity import _counter_table, _norm, _token_re, _unit_table, parse_quantity
 
+# 未実装: 決定 2026-11-22 #1148 → plans/WP16_extract_then_classify.md（見出しの語で抽出を絞らず、値は仮・候補として残す）
 HEADINGS = ("入り数", "入数", "内容量", "数量", "容量")
 # 値に「1個あたり」の言い回し（あたり・当たり・当り・につき・ごと）がある時は、総数ではなく単位あたりの説明なので読まない
 _PER_UNIT = re.compile(r"あたり|当たり|当り|につき|ごと")
@@ -36,6 +37,7 @@ _HEAD = "|".join(HEADINGS)
 # 値は数字（または 約＋数字）で始まる時だけ（数量限定・内容量:本体… の値は読まない）
 _HEADING_RE = re.compile(rf"(?<!\w)(?P<head>{_HEAD})[\]】」』)]?[\s:]*(?=約?\s*\d)")
 # 項目単位の補完（WP15 段B）の見出し。内容量の見出し（HEADINGS）とは別に持ち、値は「数字＋長さの単位」で始まる時だけ読む
+# 未実装: 決定 2026-11-22 #1148 → plans/WP16_extract_then_classify.md（見出しの語で抽出を絞らず、値は仮・候補として残す）
 ITEM_HEADING = "長さ"
 # 見出しの直後は区切り（: ・ / ・ ] ・ 】）・空白・数字の直付けのどれでもよい（長さ25m・長さ 35m・長さ／25m）。使用例の文は下の助詞で止める
 _ITEM_RE = re.compile(rf"(?<!\w)(?P<head>{ITEM_HEADING})[\]】」』)]?[\s:/]*(?=約?\s*\d)")

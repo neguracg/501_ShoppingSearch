@@ -699,6 +699,7 @@ def _none(evidence: str = "") -> QuantityInfo:
     return QuantityInfo(confidence="none", evidence=evidence)
 
 
+# 未実装: 決定 2026-11-22 #1148 → plans/WP16_extract_then_classify.md（low でも読みを捨てず readings として残す）
 def _low(evidence: str) -> QuantityInfo:
     return QuantityInfo(confidence="low", evidence=evidence)
 
