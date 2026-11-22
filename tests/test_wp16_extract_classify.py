@@ -140,6 +140,15 @@ def test_u1_counted_sentence_must_match_the_title_total():
                                      "content_dimension": "length", "evidence": "スコッティ フラワーパック 12ロール 50m シングルと比較"}]
 
 
+def test_u1_counted_sentence_with_the_same_total_gives_its_content():
+    # 個数だけ high の題名で、説明欄の文が同じ総数＋内容量（`12本×500ml`）なら (ii) を通って内容量の候補（監査 A14）
+    grp = [offer(f"w{i}", "水 12本 500ml", "", 1000 + i) for i in range(4)]
+    t = offer("tgt", "水 12本", "内容量:12本×500ml", 900)
+    compare(grp + [t], basis="ml")
+    assert (t.quantity.content_amount, t.quantity.content_dimension, t.quantity.source) == (500.0, "volume", "title+caption")
+    assert unconfirmed_reasons(t) == ["measure_from_caption"] and t.quantity.caption_candidates == []
+
+
 def test_u1_not_for_price_varies_and_not_after_the_length_heading():
     t = target("ロールサイズ:108mm×100m", price_min=3000, price_max=5000)
     compare(group_of() + [t], basis="m")
