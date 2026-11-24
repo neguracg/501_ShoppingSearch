@@ -95,6 +95,13 @@ class Offer:
     # あす楽（楽天の asurakuFlag / asurakuClosingTime）。発送目安・送料額の項目は API に無い
     asuraku_flag: bool | None = None
     asuraku_closing_time: str | None = None
+    # モールのアダプタが付ける「確認済みにできない理由」の語（WP17 P1。pricing.unconfirmed_reasons がそのまま足す）。
+    # price_options_unchecked / price_tax_unknown / condition_not_new。楽天は常に []
+    mall_unconfirmed: list[str] = field(default_factory=list)
+    points_amount: int | None = None      # 円相当の参考値（Yahoo のストアポイント・期間限定。総額・単価・最安には使わない）
+    shipping_condition: str | None = None  # "conditional_free"（条件付き送料無料）など。shipping_status とは別の参考
+    condition: str | None = None          # 商品の状態（Yahoo の new / used 等）。楽天は None
+    sale: dict | None = None              # セール中の参考（{"discounted_price", "period_end"}）。price は値下げ後の価格のまま
 
     @property
     def price_varies(self) -> bool:
@@ -125,7 +132,20 @@ class KeywordStat:
     last_page: int | None = None    # 取得できた最後のページ（1 ページも取れなければ None）
     next_page: int | None = None    # 続きがあれば次のページ番号。無い・楽天の 100 ページ天井に達した・エラーの時は None
     remaining: int | None = None    # api_count のうち、100 ページ天井以内でまだ取っていない件数（目安）。件数が分からなければ None
-    truncated: bool = False     # next_page があること（範囲・時間の上限で、取れるはずの続きを残して止めた）
+    truncated: bool = False     # next_page があること（範囲・時間の上限で、取れるはずの続きを残して止めた）。モールの件数の上限（Yahoo の 1000 件目）で止めた時は next_page=None のまま True
+    mall: str = ""              # 検索したモール（WP17 C4）
+
+
+@dataclass
+class MallStat:
+    """モール別の要約（WP17 C4）。api_count は語ごとの api_count の和（読めた語だけ。1 つも無ければ None）。"""
+    mall: str
+    received: int = 0
+    api_count: int | None = None
+    error: str | None = None          # 全部の語が失敗した時の最初の種別（一部の語だけの失敗は per_keyword の error）
+    truncated: bool = False           # どれかの語に続きがある、またはモールの上限で打ち切った
+    stopped_reason: str | None = None  # rate_limited / server_error / time_limit
+    skipped: int = 0                  # 応答のうち、読めずに捨てた hit の件数
 
 
 @dataclass
@@ -137,4 +157,5 @@ class SearchStats:
     fetched_at: str | None = None
     stopped_reason: str | None = None
     elapsed_sec: float | None = None    # 取得にかかった秒（小数 1 桁）
+    per_mall: list[MallStat] = field(default_factory=list)      # モール別の要約（WP17 C4）
     # stopped_reason: rate_limited（楽天 429）/ time_limit（1 回の取得の時間の上限で途中まで）

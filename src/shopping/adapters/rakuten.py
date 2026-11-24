@@ -6,26 +6,18 @@ URL・ヘッダー・例外本文・応答本文はログにも例外にも出�
 """
 from __future__ import annotations
 
-import json
-import socket
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
 
-from ..inputs import fits_limit
+from ..inputs import MAX_HITS, MAX_PAGES, fits_limit
 from ..models import Offer
 from .base import AdapterError, MarketplaceAdapter
+from .fields import str_or_none as _str_or_none, to_float as _to_float, to_int as _to_int    # 従来の名前でも引ける
+from .http_json import MAX_RESPONSE_BYTES, TIMEOUT_SEC, NoRedirect as _NoRedirect, fetch_json  # noqa: F401  (従来の名前でも引ける)
 
 ENDPOINT = "https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701"
 JST = timezone(timedelta(hours=9))
-MAX_RESPONSE_BYTES = 5_000_000
-TIMEOUT_SEC = 20
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
 
 def _now_jst() -> datetime:
@@ -43,36 +35,6 @@ def is_item_url(url: object) -> bool:
                 and len(segments) >= 2 and not u.username and not u.password)
     except (ValueError, TypeError):
         return False
-
-
-def _to_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        t = value.strip()
-        digits = t[1:] if t.startswith("-") else t
-        if digits and len(digits) <= 18 and digits.isascii() and digits.isdecimal():    # ①² などの Unicode 数字・巨大な数字列を int() に渡さない
-            return int(t)
-    return None
-
-
-def _to_float(value: object) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
-
-
-def _str_or_none(value: object) -> str | None:
-    return value if isinstance(value, str) and value != "" else None
 
 
 def _price_range(item: dict) -> tuple[int | None, int | None]:
@@ -126,6 +88,12 @@ def parse_item(item: object, fetched_at: str) -> Offer:
 
 class RakutenAdapter(MarketplaceAdapter):
     mall = "rakuten"
+    label = "楽天市場"
+    source = "楽天市場（楽天ウェブサービス）"
+    max_hits = MAX_HITS              # 出典: 楽天 IchibaItem Search 仕様（hits 1〜30）
+    max_page = MAX_PAGES             # 出典: 同（page 1〜100）
+    min_interval_sec = 1.0           # 出典: 楽天ウェブサービスの 1 秒 1 リクエスト
+    is_item_url = staticmethod(is_item_url)
 
     def __init__(self, app_id: str, access_key: str, opener=None, clock=None):
         self._app_id = app_id or ""
@@ -155,7 +123,7 @@ class RakutenAdapter(MarketplaceAdapter):
             raise AdapterError("invalid_request")
         if ng_keyword is not None and (not isinstance(ng_keyword, str) or not fits_limit(ng_keyword.strip())):
             raise AdapterError("invalid_request")
-        if not (1 <= hits <= 30) or page < 1:    # hits 1〜30 は楽天 IchibaItem Search の仕様（出典: 楽天ウェブサービス API 仕様）
+        if not (1 <= hits <= self.max_hits) or page < 1:    # hits 1〜30 は楽天 IchibaItem Search の仕様（出典: 楽天ウェブサービス API 仕様）
             raise AdapterError("invalid_request")
         params: dict = dict(keyword=keyword, hits=hits, page=page, sort=sort,
                             availability=availability)
@@ -170,35 +138,7 @@ class RakutenAdapter(MarketplaceAdapter):
         return self._parse_response(data)
 
     def _fetch_json(self, req: Request) -> object:
-        """失敗は except 内で raise せず kind だけ持ち出す（__context__ に元例外を残さない）。"""
-        opener = self._opener or build_opener(_NoRedirect())
-        kind = None
-        raw = b""
-        try:
-            with opener.open(req, timeout=TIMEOUT_SEC) as response:
-                status = getattr(response, "status", 200)
-                if status != 200:
-                    kind = f"http_{status}"
-                else:
-                    raw = response.read(MAX_RESPONSE_BYTES + 1)
-        except HTTPError as exc:
-            kind = f"http_{exc.code}"
-            exc.close()
-        except (TimeoutError, socket.timeout):
-            kind = "timeout"
-        except URLError as exc:
-            reason = getattr(exc, "reason", None)
-            kind = "timeout" if isinstance(reason, (TimeoutError, socket.timeout)) else "network_error"
-        except OSError:
-            kind = "network_error"
-        if kind is None and len(raw) > MAX_RESPONSE_BYTES:
-            kind = "unexpected_response"
-        if kind is None:
-            try:
-                return json.loads(raw)
-            except (UnicodeError, ValueError):  # JSONDecodeError は ValueError の子
-                kind = "invalid_json"
-        raise AdapterError(kind)
+        return fetch_json(req, opener=self._opener, timeout=TIMEOUT_SEC, max_bytes=MAX_RESPONSE_BYTES)
 
     def _parse_response(self, data: object) -> tuple[list[Offer], int]:
         if not isinstance(data, dict) or "error" in data:

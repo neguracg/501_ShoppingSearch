@@ -22,7 +22,25 @@ class AdapterError(Exception):
 
 
 class MarketplaceAdapter(ABC):
+    """モールごとの値（上限・流量・URL の形・表示名）はサブクラスの属性に持つ。外（orchestrator・guard・web・service）は属性を引くだけ。"""
     mall: str = ""
+    label: str = ""                       # 利用者に見せるモール名
+    source: str = ""                      # 出典の表記（notes・結果の source）
+    max_hits: int = 30                    # 1 ページの最大件数
+    page_size: int | None = None          # 1 ページの件数が固定のモールはその値（None は呼び出し側の hits）
+    max_page: int = 100                   # 返せる最後のページ番号
+    min_interval_sec: float = 1.0         # 1 リクエストごとに空ける秒
+    stop_kinds: tuple = ("http_429",)     # この種別のエラーは、そのモールの残りの検索を打ち切る
+    empty_means_end: bool = True          # 空のページ＝終わり（アダプタ内で候補を捨てるモールは False）
+    ceiling_note: str = ""                # max_page に達した時の注記
+
+    @staticmethod
+    def is_item_url(url: object) -> bool:
+        return False
+
+    def request_notes(self, *, sort: str = "standard", ng_keyword: str | None = None) -> list[str]:
+        """この検索条件をこのモールでどう扱うか（読み替え・代替）の注記。無ければ []。"""
+        return []
 
     @abstractmethod
     def search(self, keyword: str, *, page: int = 1, hits: int = 30,

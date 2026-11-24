@@ -1,0 +1,802 @@
+{
+ "totalResultsAvailable": 194,
+ "totalResultsReturned": 8,
+ "firstResultsPosition": 1,
+ "request": {
+  "query": "fixture"
+ },
+ "hits": [
+  {
+   "index": 1,
+   "name": "カイロ 貼る 貼れない 60枚 アイリスオーヤマ 貼るカイロ 貼れないカイロ レギュラー ぽかぽか家族 レギュラーサイズ 防寒 寒さ対策 屋外作業 PKN-60HR",
+   "description": "（検索用：防寒・あったか・冬・防寒対策・冷え性・カイロ・ミニ）",
+   "headLine": "ポイント消化 ポイント利用 ロハコ 爆買",
+   "url": "https://store.shopping.yahoo.co.jp/irisplaza/h264589.html",
+   "inStock": true,
+   "code": "irisplaza_h264589",
+   "condition": "new",
+   "imageId": "irisplaza_h264589",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/irisplaza_h264589",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/irisplaza_h264589"
+   },
+   "review": {
+    "count": 52,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=irisplaza&page_key=h264589",
+    "rate": 4.62
+   },
+   "affiliateRate": 1,
+   "price": 1680,
+   "premiumPrice": 1680,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": 6,
+   "premiumDiscountType": "sale",
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 1800,
+    "discountedPrice": 1680,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": 1795273200,
+    "periodEnd": 1795971600
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 15,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 15,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 2,
+    "name": "送料無料"
+   },
+   "genreCategory": {
+    "id": 45472,
+    "name": "使い捨てカイロ",
+    "depth": 3
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2500,
+     "depth": 1,
+     "name": "ダイエット、健康グッズ"
+    },
+    {
+     "id": 45231,
+     "depth": 2,
+     "name": "冷え対策、保温グッズ"
+    }
+   ],
+   "brand": {
+    "id": 113,
+    "name": "IRIS OHYAMA"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "4905009678921",
+   "payment": "4096 4 8192 16384 1 2 16",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "irisplaza",
+    "name": "アイリスプラザ Yahoo!店",
+    "url": "https://store.shopping.yahoo.co.jp/irisplaza/",
+    "isBestSeller": true,
+    "review": {
+     "rate": 4.42,
+     "count": 106026
+    },
+    "imageId": "irisplaza_1"
+   },
+   "delivery": {
+    "deadLine": 12,
+    "day": 2,
+    "area": "22"
+   }
+  },
+  {
+   "index": 4,
+   "name": "貼る カイロ 1個（60枚入） レギュラーサイズ エステー オリジナル",
+   "description": "エステー株式会社とアスクル株式会社がコラボした、デザインパッケージの限定カイロです。●節電対策 ●冬_OCAHOL_●袋から出すと温まります。粘着剤付で衣類に貼って手軽に使用できます。●防寒やお身体の保温。冷えの予防。倉庫や低温作業時の保温など。●肩やおなか、腰などに貼ってカイロで体を温かく。●通勤通学、レジャー、スポーツ観戦以外にも、学習塾や旅館、会社、住宅展示場などおもてなし配布用（プチギフト）としてもお使い頂けるパッケージデザイン。●使い捨てカイロは災害・地震発生時の防災用品としても活躍。●最高温度63℃●平均温度53℃●持続時間12時間（40℃以上を保持し、持続する時間）●安心の日本製 アスクル限定・ロハコ限定_OCAHOL_医薬品・ヘルスケア・介護 ＞ 冷却・カイロ ＞ カイロ・温熱用品 ＞ カイロ",
+   "headLine": "カイロ",
+   "url": "https://lohaco.yahoo.co.jp/store/h-lohaco/item/nw92584/",
+   "inStock": true,
+   "code": "rd-lohaco_nw92584",
+   "condition": "new",
+   "imageId": "rd-lohaco_nw92584",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/rd-lohaco_nw92584",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/rd-lohaco_nw92584"
+   },
+   "review": {
+    "count": 153,
+    "url": "https://shopping.yahoo.co.jp/product/review?pid=nw92584",
+    "rate": 4.72
+   },
+   "affiliateRate": 1,
+   "price": 1760,
+   "premiumPrice": 1760,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 1760,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 16,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 16,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 1,
+    "name": "設定なし"
+   },
+   "genreCategory": {
+    "id": 2021,
+    "name": "その他衛生日用品",
+    "depth": 3
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2500,
+     "depth": 1,
+     "name": "ダイエット、健康グッズ"
+    },
+    {
+     "id": 2004,
+     "depth": 2,
+     "name": "衛生日用品"
+    }
+   ],
+   "brand": {
+    "id": 16644,
+    "name": "エステー"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "4902899480085",
+   "payment": "256 1024 8192 16 512 4096 16384 1",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "rd-lohaco",
+    "name": "LOHACO by アスクル",
+    "url": "https://store.shopping.yahoo.co.jp/rd-lohaco/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.71,
+     "count": 32133
+    },
+    "imageId": "rd-lohaco_1"
+   },
+   "delivery": {
+    "deadLine": 24,
+    "day": 2,
+    "area": "22"
+   }
+  },
+  {
+   "index": 22,
+   "name": "DULTON ダルトン ラッピングコード ツイステッド ストリング コットン紐 ツイストコード 包装用 紐 糸 ロープ ラッピング用品 おしゃれ",
+   "description": "DULTON ダルトン ラッピングコード ツイステッド ストリング コットン紐 ツイストコード 包装用 紐 糸 ロープ ラッピング用品 おしゃれ かわいい シンプル リボン ラッピングリボン 雑貨 ギフト プレゼント ギフトラッピング用品 リボン コットンひも 綿ひも カラー紐 ギフトリボン ギフト紐 麻紐 北欧 レトロ アメリカン 赤 レッド ホワイト 白 ブルー 青 紺 ネイビー グリーン 緑 イエロー 黄色 マスタード グレー 灰色 マルチカラー ストライプ 縞々しましま カラフル PayFesSale",
+   "headLine": "ダルトン ラッピング 包装用 紐 糸 おしゃれ",
+   "url": "https://store.shopping.yahoo.co.jp/mercadomercado/dulgs555.html",
+   "inStock": true,
+   "code": "mercadomercado_dulgs555",
+   "condition": "new",
+   "imageId": "mercadomercado_dulgs555",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/mercadomercado_dulgs555",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/mercadomercado_dulgs555"
+   },
+   "review": {
+    "count": 0,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=mercadomercado&page_key=dulgs555",
+    "rate": 0
+   },
+   "affiliateRate": 1,
+   "price": 550,
+   "premiumPrice": 550,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 550,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 5,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 5,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 3,
+    "name": "条件付き送料無料"
+   },
+   "genreCategory": {
+    "id": 47244,
+    "name": "ラッピング用リボン、紐",
+    "depth": 4
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2508,
+     "depth": 1,
+     "name": "キッチン、日用品、文具"
+    },
+    {
+     "id": 46566,
+     "depth": 2,
+     "name": "文具、ステーショナリー"
+    },
+    {
+     "id": 47237,
+     "depth": 3,
+     "name": "ラッピング用品"
+    }
+   ],
+   "brand": {
+    "id": 1155,
+    "name": "DULTON"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "",
+   "payment": "1 4 64 128 1024 16384 2 16 512 4096 8192",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "mercadomercado",
+    "name": "MERCADOメルカド かご収納雑貨の店",
+    "url": "https://store.shopping.yahoo.co.jp/mercadomercado/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.71,
+     "count": 645
+    },
+    "imageId": "mercadomercado_1"
+   },
+   "delivery": {
+    "deadLine": null,
+    "day": null,
+    "area": ""
+   }
+  },
+  {
+   "index": 5,
+   "name": "貼る カイロ 1セット（60枚入×2個） レギュラーサイズ エステー オリジナル",
+   "description": "エステー株式会社とアスクル株式会社がコラボした、デザインパッケージの限定カイロです。●節電対策 ●冬_OCAHOL_●袋から出すと温まります。粘着剤付で衣類に貼って手軽に使用できます。●防寒やお身体の保温。冷えの予防。倉庫や低温作業時の保温など。●肩やおなか、腰などに貼ってカイロで体を温かく。●通勤通学、レジャー、スポーツ観戦以外にも、学習塾や旅館、会社、住宅展示場などおもてなし配布用（プチギフト）としてもお使い頂けるパッケージデザイン。●使い捨てカイロは災害・地震発生時の防災用品としても活躍。●最高温度63℃●平均温度53℃●持続時間12時間（40℃以上を保持し、持続する時間）●安心の日本製 アスクル限定・ロハコ限定_OCAHOL_医薬品・ヘルスケア・介護 ＞ 冷却・カイロ ＞ カイロ・温熱用品 ＞ カイロ",
+   "headLine": "カイロ",
+   "url": "https://lohaco.yahoo.co.jp/store/h-lohaco/item/nw92615/",
+   "inStock": true,
+   "code": "rd-lohaco_nw92615",
+   "condition": "new",
+   "imageId": "rd-lohaco_nw92615",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/rd-lohaco_nw92615",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/rd-lohaco_nw92615"
+   },
+   "review": {
+    "count": 41,
+    "url": "https://shopping.yahoo.co.jp/product/review?pid=nw92615",
+    "rate": 4.61
+   },
+   "affiliateRate": 1,
+   "price": 3360,
+   "premiumPrice": 3360,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 3360,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 30,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 30,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 1,
+    "name": "設定なし"
+   },
+   "genreCategory": {
+    "id": 2021,
+    "name": "その他衛生日用品",
+    "depth": 3
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2500,
+     "depth": 1,
+     "name": "ダイエット、健康グッズ"
+    },
+    {
+     "id": 2004,
+     "depth": 2,
+     "name": "衛生日用品"
+    }
+   ],
+   "brand": {
+    "id": 16644,
+    "name": "エステー"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "4902899480085",
+   "payment": "256 1024 4096 1 512 8192 16384 16",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "rd-lohaco",
+    "name": "LOHACO by アスクル",
+    "url": "https://store.shopping.yahoo.co.jp/rd-lohaco/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.71,
+     "count": 32133
+    },
+    "imageId": "rd-lohaco_1"
+   },
+   "delivery": {
+    "deadLine": 24,
+    "day": 2,
+    "area": "22"
+   }
+  },
+  {
+   "index": 7,
+   "name": "ダルトン ティッシュケース スチール 厚型対応 （ おしゃれ 置き型 壁掛け ペーパータオルケース ペーパータオルホルダー ステンレス DULTON ）",
+   "description": "サイズ/約幅26×奥行12.5×高さ14.5cm<br>重量/約1.2kg<br>内容量/1個<br>付属品：取付ネジ4個、カールプラグ4個、ラバースタンド4個<br>材質/スチール<br>種類/サックスブルー、グレー、アイボリー、レッド、ブラウン、オリーブ、イエロー<br>生産国/中国製<br><br>●インテリア性抜群のステンレススチール製のティッシュディスペンサーです。<br>●壁に取り付けて使ったりテーブルにそのまま置いたり、両方できます。<br>●ロールタイプのキッチンペーパー、ペーパータオル、厚型のティッシュボックス、薄型のティッシュボックスが収納できます。<br>●ボタンを押してパカっと開閉できます。<br><br>ティッシュカバー ティッシュディスペンサー ティッシュボックス 厚型 薄型 インテリア ボックスティッシュ ペーパータオル キッチンペーパー 壁面 壁付け スタイリッシュ リビング ダイニング キッチン 洗面所 手洗い場 お手洗い トイレ 店舗 サロン オフィス 事務所 ブルー グレー アイボリー レッド ブラウン グリーン イエロー LH3815",
+   "headLine": "お部屋のアクセントになるティッシュディスペンサー",
+   "url": "https://store.shopping.yahoo.co.jp/livingut/314157.html",
+   "inStock": true,
+   "code": "livingut_314157",
+   "condition": "new",
+   "imageId": "livingut_314157",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/livingut_314157",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/livingut_314157"
+   },
+   "review": {
+    "count": 11,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=livingut&page_key=314157",
+    "rate": 4.82
+   },
+   "affiliateRate": 1,
+   "price": 4620,
+   "premiumPrice": 4620,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 4620,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 42,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 42,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 2,
+    "name": "送料無料"
+   },
+   "genreCategory": {
+    "id": 3596,
+    "name": "ティッシュケース",
+    "depth": 3
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2506,
+     "depth": 1,
+     "name": "家具、インテリア用品"
+    },
+    {
+     "id": 3585,
+     "depth": 2,
+     "name": "インテリア雑貨"
+    }
+   ],
+   "brand": {
+    "id": 1155,
+    "name": "DULTON"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "",
+   "payment": "4 8 16384 1 16 4096 2",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "livingut",
+    "name": "リビングート ヤフー店",
+    "url": "https://store.shopping.yahoo.co.jp/livingut/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.55,
+     "count": 29834
+    },
+    "imageId": "livingut_1"
+   },
+   "delivery": {
+    "deadLine": 12,
+    "day": 1,
+    "area": "22"
+   }
+  },
+  {
+   "index": 9,
+   "name": "BONOX ボノックス 老眼鏡 リーディンググラス おしゃれ ダルトン DULTON かわいい ブランド メンズ レディース 雑貨 眼鏡",
+   "description": "「老眼鏡っぽくない」デザインが魅力のBONOXリーディンググラス。<br><br>スタイリッシュなフレームで、普段使いのメガネ感覚で自然に着用できます。<br>軽量設計で長時間使用しても疲れにくく、読書やスマートフォン操作、パソコン作業にも最適。<br><br>コンパクトに折りたためる仕様で持ち運びにも便利。<br><br>外出先や仕事中、自宅でのリラックスタイムまで幅広く活躍する一本です。<br>初めてのリーディンググラスにもおすすめのアイテムです。<br><br>ケースつきで、プレゼントにもおすすめ！<br>YGF158 | ポリカーボネート・白銅<br>YGF159 | ポリカーボネート<br>カラー | デミ・ブラッククリア・ベージュ・ブルー・グリーン・グレーレッド・ブルーオレンジ・グリーンイエロー・ベージュデミ<br>生産国 | 中国<br>レンズ | アクリル樹脂<br>爆買",
+   "headLine": "爆買",
+   "url": "https://store.shopping.yahoo.co.jp/g-passio/a5837-ygf158.html",
+   "inStock": true,
+   "code": "g-passio_a5837-ygf158",
+   "condition": "new",
+   "imageId": "g-passio_a5837-ygf158",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/g-passio_a5837-ygf158",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/g-passio_a5837-ygf158"
+   },
+   "review": {
+    "count": 3,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=g-passio&page_key=a5837-ygf158",
+    "rate": 4.67
+   },
+   "affiliateRate": 1,
+   "price": 1485,
+   "premiumPrice": 1485,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": 10,
+   "premiumDiscountType": "sale",
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 1650,
+    "discountedPrice": 1485,
+    "fixedPrice": 1650,
+    "premiumPrice": null,
+    "periodStart": 1795086000,
+    "periodEnd": 1796173200
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 13,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 13,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 2,
+    "name": "送料無料"
+   },
+   "genreCategory": {
+    "id": 34670,
+    "name": "老眼鏡、シニアグラス",
+    "depth": 3
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2500,
+     "depth": 1,
+     "name": "ダイエット、健康グッズ"
+    },
+    {
+     "id": 16003,
+     "depth": 2,
+     "name": "メガネ、老眼鏡"
+    }
+   ],
+   "brand": {
+    "id": 1155,
+    "name": "DULTON"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "",
+   "payment": "1 16 4096 16384 64",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "g-passio",
+    "name": "G-passio ジーパッシオ",
+    "url": "https://store.shopping.yahoo.co.jp/g-passio/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.79,
+     "count": 2647
+    },
+    "imageId": "g-passio_1"
+   },
+   "delivery": {
+    "deadLine": 12,
+    "day": 1,
+    "area": "22"
+   }
+  },
+  {
+   "index": 1,
+   "name": "ダルトン DULTON SECTION BOX GRAY/YELLOW 収納・キャリー 収納・キャリー・その他グッズ",
+   "description": "【カラー】.<br><br>【サイズ】.<br><br>【素材】ポリプロピレン<br>【原産国】中国<br>【メーカー品番】67449298<br>【コメント】本体と持ち手の配色が目を引く、仕切り付き収納ボックス。スタッキングしたまま持ち運びが出来る連結式なので、複数使いがおすすめ。また中の仕切りは取り外しが可能なので、工具入れ、ファーストエイドボックス、文房具入れなど、用途に合わせて使えます。選べる5色展開より。■サイズ :''H.65mm W.260mm D.155mmメーカー品番：H20-0127GY/YL",
+   "headLine": "ポイント利用;爆買",
+   "url": "https://store.shopping.yahoo.co.jp/store-megasports/67449298.html",
+   "inStock": false,
+   "code": "store-megasports_67449298",
+   "condition": "new",
+   "imageId": "store-megasports_67449298",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/store-megasports_67449298",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/store-megasports_67449298"
+   },
+   "review": {
+    "count": 0,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=store-megasports&page_key=67449298",
+    "rate": 0
+   },
+   "affiliateRate": 1,
+   "price": 660,
+   "premiumPrice": 660,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 660,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 6,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 6,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 1,
+    "name": "設定なし"
+   },
+   "genreCategory": {
+    "id": 2949,
+    "name": "アウトドア用品その他",
+    "depth": 2
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2513,
+     "depth": 1,
+     "name": "アウトドア、釣り、旅行用品"
+    }
+   ],
+   "brand": {
+    "id": 1155,
+    "name": "DULTON"
+   },
+   "parentBrands": [
+    {
+     "id": 1,
+     "name": "ブランド"
+    }
+   ],
+   "janCode": "4997337063937",
+   "payment": "4096 1 512 16384 4 16 256 1024",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "store-megasports",
+    "name": "メガスポーツYahoo!店",
+    "url": "https://store.shopping.yahoo.co.jp/store-megasports/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.17,
+     "count": 368
+    },
+    "imageId": "store-megasports_1"
+   },
+   "delivery": {
+    "deadLine": null,
+    "day": null,
+    "area": ""
+   }
+  },
+  {
+   "index": 1,
+   "name": "【まとめ買い】丸実富士屋商店 文化たきつけ 18本入り ×2個セット 着火剤 アウトドア キャンプ レジャー BBQ バーベキュー  オガ炭 備長炭 岩手切炭 に",
+   "description": null,
+   "headLine": "",
+   "url": "https://store.shopping.yahoo.co.jp/basecamp8/4978026304173-2set.html",
+   "inStock": true,
+   "code": "basecamp8_4978026304173-2set",
+   "condition": "new",
+   "imageId": "basecamp8_4978026304173-2set",
+   "image": {
+    "small": "https://item-shopping.c.yimg.jp/i/c/basecamp8_4978026304173-2set",
+    "medium": "https://item-shopping.c.yimg.jp/i/g/basecamp8_4978026304173-2set"
+   },
+   "review": {
+    "count": 3,
+    "url": "https://shopping.yahoo.co.jp/review/item/list?store_id=basecamp8&page_key=4978026304173-2set",
+    "rate": 5
+   },
+   "affiliateRate": 1,
+   "price": 580,
+   "premiumPrice": 580,
+   "premiumPriceStatus": false,
+   "premiumDiscountRate": null,
+   "premiumDiscountType": null,
+   "priceLabel": {
+    "taxable": true,
+    "defaultPrice": 580,
+    "discountedPrice": null,
+    "fixedPrice": null,
+    "premiumPrice": null,
+    "periodStart": null,
+    "periodEnd": null
+   },
+   "point": {
+    "amount": 0,
+    "times": 0,
+    "bonusAmount": 0,
+    "bonusTimes": 0,
+    "lyLimitedBonusAmount": 5,
+    "lyLimitedBonusTimes": 1,
+    "premiumAmount": 0,
+    "premiumTimes": 0,
+    "premiumBonusAmount": 0,
+    "premiumBonusTimes": 0,
+    "lyLimitedPremiumBonusAmount": 5,
+    "lyLimitedPremiumBonusTimes": 1
+   },
+   "shipping": {
+    "code": 2,
+    "name": "送料無料"
+   },
+   "genreCategory": {
+    "id": 21221,
+    "name": "着火剤",
+    "depth": 4
+   },
+   "parentGenreCategories": [
+    {
+     "id": 2513,
+     "depth": 1,
+     "name": "アウトドア、釣り、旅行用品"
+    },
+    {
+     "id": 2522,
+     "depth": 2,
+     "name": "アウトドア、キャンプ、登山"
+    },
+    {
+     "id": 21210,
+     "depth": 3,
+     "name": "アウトドア燃料"
+    }
+   ],
+   "brand": {
+    "id": null,
+    "name": ""
+   },
+   "parentBrands": [],
+   "janCode": "4978026304173",
+   "payment": "64 16384 1 2 256 512 1024 4096 16",
+   "releaseDate": null,
+   "seller": {
+    "sellerId": "basecamp8",
+    "name": "BASE CAMP 8",
+    "url": "https://store.shopping.yahoo.co.jp/basecamp8/",
+    "isBestSeller": false,
+    "review": {
+     "rate": 4.69,
+     "count": 524
+    },
+    "imageId": "basecamp8_1"
+   },
+   "delivery": {
+    "deadLine": null,
+    "day": null,
+    "area": ""
+   }
+  }
+ ]
+}
