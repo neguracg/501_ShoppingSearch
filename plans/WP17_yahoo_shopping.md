@@ -77,6 +77,16 @@
 - 出力 dict（offer_to_dict）に `points_amount`・`shipping_condition`・`condition` を足す（楽天は None）。`unconfirmed_reasons` の語は `provisional_*` の理由と to_check に今の形で出る。
 - `pricing.unconfirmed_reasons(offer)` が `offer.mall_unconfirmed` の語を含む。
 
+## 補足の決定（2026-11-24 18:58。ブラインド試験の固定で見つかった契約の穴への答え）
+
+1. cheapest_price・cheapest_total（表示価格・送料込み総額の単純な最安）は今の price_varies と同じ扱いで変えない（Yahoo も入り得る。確認済みの枠は P1 の5つ）。
+2. Y2 の max_page は 19（start=901・results=50＝950 件目まで。`start+results ≤ 1000` を安全側に解釈）。
+3. api_count は totalResultsAvailable。全モール失敗時の error.kind は最初に失敗したモール（楽天が先）の kind。
+4. C5 の注記はモールの日本語名＋kind（「Yahoo!ショッピングは rate_limited で取得できなかった（楽天だけで比較）」。楽天だけの失敗も同じ型）。
+5. stats.per_mall の行: mall・fetched・api_count・error（kind か null）・truncated。
+6. hit 単位で捨てた件数はアダプタの `last_skipped`（int）→ service が notes。その他の HTTP は `http_<code>`。shipping_condition は code=3 の時だけ。condition は応答の値のまま。points_amount は 0 なら 0。adapters に yahoo が無い時の malls=["yahoo"]・malls=[] は invalid_request。
+7. モール属性（label・max_hits・max_page・min_interval_sec・credit）が無いアダプタは楽天の値を既定にする（既存の FakeAdapter を壊さない）。
+
 ## 作業単位（主担当 implementer 1本・worktree。単位ごとにコミット＋WORKLOG 1行）
 
 - U1 アダプタ（Y1〜Y8）＋ `tests/test_yahoo_adapter.py`（楽天のアダプタ試験の型。手作りの小さな fixture `tests/fixtures/yahoo_search.json`〔実応答から 6〜8 件を抜き、appid は無い〕）＋録画の読み取り試験（`data/yahoo_poc/Yahoo_PoC_Results.json` があれば 271 件を全部 Offer にして例外 0・URL の ok/needs_review の件数・送料の写像の件数を確かめる。無ければ skip）。
