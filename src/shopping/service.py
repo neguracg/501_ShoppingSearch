@@ -383,17 +383,28 @@ def to_check_to_dict(t: ToCheck) -> dict:
 SHORTLIST_TOP = 5
 _SHORTLIST_READING = (
     "confirmed_cheapest は確認済み（数量・価格・送料込みの条件を満たす）注文の最安で、無ければ null。"
-    "unconfirmed_candidates は確認済みではないが confirmed_cheapest より安くなり得る候補（確認済みが無い時は未確認の注文案）を"
-    "モールを問わず安い順に上位だけ並べたもので、全件は to_check。『最安』と呼べるのは確認済みだけ。"
+    "unconfirmed_candidates は確認済みではない候補で、確認済みの最安より安くなり得る候補（確認済みが無い時は未確認の注文案）を"
+    "モールを問わず安い順に先頭 5 件と、そこに出ないモールの先頭の 1 件を足したもの（全件は to_check）。"
+    "数え語の換算の仮定（counter_assumed）で残した候補は確認済みの最安より高いこともあるので、conditions を読んで判断する。"
+    "『最安』と呼べるのは確認済みだけ。"
     "未確認の候補は観測価格・仮単価・未確認理由・逆転条件（conditions）を添えて confirmed_cheapest と並べて示し、商品ページで確認するよう伝える。")
+
+
 def _shortlist(cheapest_order: dict | None, to_check: list[dict]) -> dict:
     """上位の見取り図（WP18。SPEC §8 Q25）。cheapest_order と to_check の dict を**そのまま**（全キー）写すだけで、新しい判定を持たない
     （確認済みの判定・最安の選び方・to_check の並びと条件は pricing のまま。単価・注文額の種類のキーが組で揃う＝Q21・Q23 の一貫性を壊さない）。
-    to_check は pricing が安い順に並べた物をそのまま先頭から使う。"""
+    枠の配り方: to_check の順で先頭 SHORTLIST_TOP 件を取り、そこに出ないモールがあれば、そのモールの to_check 内の最初の候補を足す
+    （弱い仮定の候補が先頭 5 件を占めて、別のモールの安い候補が枠の外に出るのを防ぐ。件数は最大 5＋モール数。選別・並べ替えはしない）。"""
+    head = to_check[:SHORTLIST_TOP]
+    seen = {t.get("mall") for t in head}
+    extra = []
+    for t in to_check[SHORTLIST_TOP:]:
+        if t.get("mall") not in seen:
+            seen.add(t.get("mall"))
+            extra.append(t)
     return {
         "confirmed_cheapest": None if cheapest_order is None else dict(cheapest_order),
-        "unconfirmed_candidates": [dict(t, conditions=[dict(c) for c in t.get("conditions") or []])
-                                   for t in to_check[:SHORTLIST_TOP]],
+        "unconfirmed_candidates": [dict(t, conditions=[dict(c) for c in t.get("conditions") or []]) for t in head + extra],
         "unconfirmed_count": len(to_check),
         "reading": _SHORTLIST_READING,
     }

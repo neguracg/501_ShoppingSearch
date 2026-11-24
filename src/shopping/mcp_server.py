@@ -28,7 +28,7 @@ _ORDER_GUIDE = (
     "（数え語のグループが複数ある時は主グループ main_count_unit の結果。他のグループは groups[] の中）、(2) to_check＝逆転し得る候補と条件（理由が複数でも合算した1つの条件。『注文全体の送料が X円未満なら安い』『商品名の数量の選択肢が X円以下なら安い』"
     "『説明欄の数量が正しければ』）、(3) 確定に足りない条件（caveats）。"
     "結果は結論が先・件数の多い一覧（to_check の全件・order_plans・groups・unknown_offers）が後の順で、comparison.shortlist が (1)(2) の上位の見取り図"
-    "（confirmed_cheapest＝確認済みの最安と、それより安くなり得る未確認の候補 unconfirmed_candidates をモールを問わず安い順に上位だけ）。"
+    "（confirmed_cheapest＝確認済みの最安と、未確認の候補 unconfirmed_candidates＝安くなり得る候補をモールを問わず安い順に上位だけ〔to_check に出る各モールの先頭の 1 件は必ず入る。換算の仮定で残した候補は確認済みの最安より高いこともあるので conditions を読む〕）。"
     "結果が長い時は shortlist・cheapest_order・caveats から先に読む。『最安』と呼べるのは確認済みだけで、確認済みの最安が1モールでも、"
     "別のモールの未確認の安い候補を落とさず、仮単価・未確認理由・条件（conditions）を添えて並べて示し、商品ページで確認するよう伝える。"
     "price_varies が true の候補（選択肢で価格が変わる。表示価格は商品名の数量の選択肢の価格とは限らない）を『○枚○円』と断定しない。"

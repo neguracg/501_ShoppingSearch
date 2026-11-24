@@ -178,3 +178,70 @@ def test_instructions_tell_the_caller_to_read_shortlist_first_and_description_is
             return {t.name: t for t in (await c.list_tools()).tools}
     d = asyncio.run(asyncio.wait_for(go(), timeout=30))["compare_offers"].description
     assert len(d) <= 2000 and "shortlist" not in d          # ツール説明（2000 字ガード）は増やさず INSTRUCTIONS にだけ足す
+
+
+# --- レビュー B1・B2・空括弧（2026-11-25 の追加）-----------------------------------------------
+
+def weak_market():
+    """B1 の再現: 楽天の確認済み 1610 円・楽天『10個セット』6 件（basis=枚では数え語が違う＝換算の仮定 counter_assumed・100〜105 円）・Yahoo 60枚 1500 円 1 件。"""
+    return ([rk("bc", "貼るカイロ 60枚 ミニ", 1610)]
+            + [rk(f"set{i}", f"貼るカイロ 10個セット 店{i}", 100 + i) for i in range(6)]
+            + [yh("y60", "貼るカイロ 60枚 Yahoo店", 1500)])
+
+
+def test_b1_a_cheaper_yahoo_candidate_is_not_pushed_out_by_five_weak_rakuten_assumptions():
+    c = cmp_dict(weak_market())
+    tc = c["to_check"]
+    assert [t["mall"] for t in tc[:5]] == ["rakuten"] * 5 and all("counter_assumed" in t["unconfirmed_reasons"] for t in tc[:5])
+    assert any(t["mall"] == "yahoo" for t in tc[5:])                         # 実装前は to_check の 6 件目以降＝shortlist の外
+    cands = c["shortlist"]["unconfirmed_candidates"]
+    assert [t["item_code"] for t in cands[:5]] == [t["item_code"] for t in tc[:5]]      # 先頭 5 件は to_check の順のまま（並べ替えない）
+    assert [t["mall"] for t in cands].count("yahoo") == 1 and cands[5]["mall"] == "yahoo"     # 出ないモールの先頭の 1 件が足される
+    assert cands[5] == next(t for t in tc if t["mall"] == "yahoo")                          # そのモールの to_check 内の最初の候補
+    assert len(cands) == 6 <= service.SHORTLIST_TOP + 2 and c["shortlist"]["unconfirmed_count"] == len(tc)
+    assert c["cheapest_order"]["item_code"] == "bc"                                         # 判定は不変
+
+
+def test_b1_no_extra_when_every_mall_is_already_in_the_top_five_and_one_extra_per_missing_mall_only():
+    offers = [rk("bc", "貼るカイロ 60枚 ミニ", 1610)] + [yh(f"y{i}", f"貼るカイロ 60枚 店{i}", 1000 + i) for i in range(9)]
+    assert len(cmp_dict(offers)["shortlist"]["unconfirmed_candidates"]) == 5      # Yahoo だけなら従来どおり 5 件
+    both = cmp_dict(market())["shortlist"]["unconfirmed_candidates"]
+    assert {t["mall"] for t in both} == {"rakuten", "yahoo"} and len(both) <= service.SHORTLIST_TOP + 2
+
+
+def test_b2_reading_and_instructions_say_assumption_candidates_can_be_pricier_than_the_confirmed_cheapest():
+    from shopping import mcp_server
+    sl = cmp_dict(market())["shortlist"]
+    assert "counter_assumed" in sl["reading"] and "conditions を読んで" in sl["reading"] and "先頭の 1 件" in sl["reading"]
+    assert "換算の仮定で残した候補は確認済みの最安より高いこともある" in mcp_server._ORDER_GUIDE
+    # 実際の動き: 換算の仮定の候補は確認済みの最安より高くても to_check に残る（判定は不変）
+    offers = [rk("bc", "貼るカイロ 60枚 ミニ", 1610), rk("big", "貼るカイロ 10個セット 高い店", 99999)]
+    c = cmp_dict(offers)
+    assert [t["item_code"] for t in c["to_check"]] == ["big"] and c["to_check"][0]["order_total"] > 1610
+    assert c["shortlist"]["unconfirmed_candidates"][0]["item_code"] == "big"
+
+
+def test_empty_parentheses_never_appear_in_to_check_conditions():
+    """to_check の条件文の『商品名の数量（）』。題名 low（数量が読めない）で換算の仮定＋価格幅の案は、仮定が置いた数量（60枚）を入れる。"""
+    lows = [rk("lo1", "貼るカイロ 60枚 30枚 お得", 1280, price_min=1280, price_max=1700),
+            rk("lo2", "貼るカイロ 60セット入り 1箱", 1280, price_min=1280, price_max=1700),
+            rk("lo3", "貼るカイロ 60枚 30枚 送料別", 1280, ship="separate", price_min=1280, price_max=1700)]
+    c = cmp_dict([rk("bc", "貼るカイロ 60枚 ミニ", 1610)] + lows)
+    texts = [cc["text"] for t in c["to_check"] for cc in t["conditions"]]
+    assert texts and not any("（）" in x or "。なら" in x or "（、" in x for x in texts), texts
+    low = next(t for t in c["to_check"] if t["item_code"] == "lo1")
+    assert "商品名の数量（60枚）の選択肢の価格" in low["conditions"][0]["text"]
+
+
+def test_condition_label_falls_back_to_no_parentheses_when_no_quantity_is_known():
+    from shopping import pricing
+    from shopping.pricing import OrderPlan
+
+    # 数量の読みが何も無い案（題名からも換算の仮定からも）: 括弧ごと省く
+    o = rk("none", "貼るカイロ ミニ", 1280, price_min=1280, price_max=1700)
+    plan = OrderPlan(offer=o, n=1, order_quantity=60.0, order_total=1280, order_unit_price=21.3, label="1枚あたり",
+                     shipping_status="included", count_unit=None, reasons=["price_varies"], notes={})
+    best = OrderPlan(offer=rk("bc", "貼るカイロ 60枚", 1610), n=1, order_quantity=60.0, order_total=1610,
+                     order_unit_price=26.8, label="1枚あたり", shipping_status="included", count_unit="枚", reasons=[], notes={})
+    text = pricing._conditions(plan, best)[0]["text"]
+    assert "（）" not in text and "商品名の数量の選択肢の価格が" in text
