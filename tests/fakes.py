@@ -78,3 +78,30 @@ def make_offer(code, name="商品", price=1000, **kw):
     from shopping.models import Offer
     return Offer(mall="rakuten", mall_item_code=code, item_name=name, price=price,
                  item_url=f"https://item.rakuten.co.jp/shop/{code}/", item_url_status="ok", **kw)
+
+
+def yoffer(code, name="商品", price=1000, **kw):
+    """Yahoo の候補（アダプタが付ける未確定の理由 price_options_unchecked つき）。"""
+    from shopping.models import Offer
+    kw.setdefault("mall_unconfirmed", ["price_options_unchecked"])
+    return Offer(mall="yahoo", mall_item_code=code, item_name=name, price=price,
+                 item_url=f"https://store.shopping.yahoo.co.jp/s/{code}.html", item_url_status="ok", **kw)
+
+
+class FakeYahoo(FakeAdapter):
+    """Yahoo のモール属性（1 ページ 50 件固定・19 ページまで・rate_limited/server_error で打ち切り）を持つ偽物。"""
+
+    mall = "yahoo"
+    label = "Yahoo!ショッピング"
+    short_label = "Yahoo"
+    page_size = 50
+    max_hits = 50
+    max_page = 19
+    min_interval_sec = 2.2
+    stop_kinds = ("rate_limited", "server_error")
+    empty_means_end = False
+    ceiling_note = "Yahoo は 1000 件目まで"
+
+    def request_notes(self, *, sort="standard", ng_keyword=None):
+        from shopping.adapters.yahoo import YahooAdapter
+        return YahooAdapter.request_notes(self, sort=sort, ng_keyword=ng_keyword)

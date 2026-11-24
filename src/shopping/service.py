@@ -124,6 +124,12 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
         "price_varies": offer.price_varies,
         "asuraku_flag": offer.asuraku_flag,
         "asuraku_closing_time": offer.asuraku_closing_time,
+        # WP17（§5b）: モールが付ける参考。points_amount＝円相当の参考値（総額・単価・最安には使わない）、shipping_condition＝
+        # conditional_free（条件付き送料無料）、condition＝商品の状態、sale＝セール中の参考。楽天は None
+        "points_amount": offer.points_amount,
+        "shipping_condition": offer.shipping_condition,
+        "condition": offer.condition,
+        "sale": None if offer.sale is None else dict(offer.sale),
     }
     if known_urls is not None:
         d["is_known_url"] = offer.item_url in known_urls
@@ -348,7 +354,7 @@ def order_plan_to_dict(p: OrderPlan) -> dict:
     kind = ("payment_total" if p.confirmed else                    # 確認済みの案だけ支払総額（§8 Q23。WP15 レビュー B1）
             "unconfirmed_total" if p.shipping_status == "included" else "item_subtotal")
     return {
-        "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
+        "mall": o.mall, "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
         "url": o.item_url, "url_status": o.item_url_status,
         "price": o.price, "price_min": o.price_min, "price_max": o.price_max, "price_varies": o.price_varies,
         "n": p.n, "order_quantity": p.order_quantity, "order_total": p.order_total,
