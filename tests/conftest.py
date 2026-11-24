@@ -9,6 +9,15 @@ for p in (ROOT / "src", ROOT):
         sys.path.insert(0, str(p))
 
 
+def pytest_configure(config):
+    """既定の python（mcp が入っていない）で流すと、MCP を使う試験だけが ModuleNotFoundError で落ちて不具合に見える。
+    試験は .venv（requirements.txt の mcp・fastapi が入った環境）で流す。"""
+    try:
+        import mcp  # noqa: F401
+    except ImportError:
+        pytest.exit("mcp が入っていない python で流している。.venv/Scripts/python -m pytest で流すこと（requirements-dev.txt）。", returncode=2)
+
+
 @pytest.fixture(autouse=True)
 def _no_real_yahoo_key(monkeypatch):
     """試験は実の Yahoo の鍵（環境変数・.env・.env.yahoo.local）を見ない。見えると、本体のフォルダで走らせた時に
