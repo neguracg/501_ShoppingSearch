@@ -81,6 +81,31 @@ INSTRUCTIONS = (
     f"回答の末尾にクレジット（{CREDIT_TEXT}）を添えること。"
 )
 
+# Yahoo を検索できる時（Yahoo の鍵がある・モック）だけ、INSTRUCTIONS とツール説明に足す文（WP17 W3）。楽天だけの時の文言は従来のまま
+_YAHOO_INSTRUCTIONS = (
+    "【モール】楽天市場に加えて Yahoo!ショッピングも検索する（malls=['rakuten','yahoo'] で指定。省略すると有効な全モール。無効・未知のモールは invalid_request）。"
+    "Yahoo の候補は検索 API に選択肢（色・サイズ・数量）ごとの価格が無く、選択肢ごとの価格を確かめていないので、最安は『候補』として扱い、"
+    "商品ページで確認を促すこと（確認済みの最安・注文案には入らず、provisional_unit_price と to_check に条件つきで出る）。"
+    "2 モール以上を検索して続きを取る時は、続きが要るモールだけを malls=['yahoo'] のように指定して start_page=N で呼ぶ"
+    "（start_page は全モールに効く。続きの無いモールまで呼ぶと範囲外のページで失敗する。各モールの続きの呼び方は notes に書かれる）。"
+    "ポイント（points_amount）は参考値で総額から引かない。stats.per_mall はモール別の取得件数・api_count・エラー、"
+    "片方のモールが失敗した時は notes に書かれる（もう片方で比べた結果）。"
+    "回答の末尾には、使ったモールのクレジット全部（結果の credits。楽天は {credit}）を添えること。"
+)
+_MALLS_SENTENCE = "malls=rakuten・yahoo（省略=有効な全モール）。Yahoo の候補は選択肢ごとの価格が未確認で、最安にせず商品ページでの確認を促す。"
+
+
+_CONTINUE_SENTENCE = "複数モールの続きは、続きが要るモールだけ malls で指定して start_page で呼ぶ。"
+
+
+def instructions_for(malls) -> str:
+    """有効なモール（Yahoo を含む時だけ文言が変わる）に応じた INSTRUCTIONS。"""
+    if "yahoo" not in (malls or ()):
+        return INSTRUCTIONS
+    out = INSTRUCTIONS.replace("楽天市場の商品を検索・比較する", "楽天市場・Yahoo!ショッピングの商品を検索・比較する", 1)
+    return out.replace(f"回答の末尾にクレジット（{CREDIT_TEXT}）を添えること。", _YAHOO_INSTRUCTIONS.format(credit=CREDIT_TEXT), 1)
+
+
 # 両ツールの説明に入れる共通の注意（商品の意味は判定しない）。文は1か所（ここ）だけで持つ（WP11-1）
 _NOT_JUDGED = (
     "【注意】このツールは商品の種類・仕様（本体／交換部品・付属品、純正／互換、型番・世代違い、"
@@ -97,14 +122,28 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
     """public=False: 運営者用の stdio（3 ツール）。public=True: 公開 {BASE}/mcp 用（2 ツール・Gate 必須）。"""
     if public and gate is None:
         raise ValueError("public server needs a Gate")
-    server = MCPServer("shopping-research", instructions=INSTRUCTIONS)
+    # 有効なモール（公開: Gate のアダプタ。stdio: 運営者用の既定〔モック→両方・live→鍵のあるモール〕）。Yahoo を含む時だけ説明を変える
+    malls_on = list(gate.adapters) if public else list(service.make_adapters(local_tool=True))
+    yahoo_on = "yahoo" in malls_on
+    server = MCPServer("shopping-research", instructions=instructions_for(malls_on))
+
+    def desc(text: str) -> str:
+        """ツール説明。Yahoo を含む時は楽天市場の語にモールを足し、malls の使い方と Yahoo の注意を1文足す（WP11 の 2000 字以内）。"""
+        if not yahoo_on:
+            return text
+        more = _CONTINUE_SENTENCE if text.startswith("楽天市場で商品を検索し") else ""      # search_products だけ（compare_offers は 2000 字に収めるため INSTRUCTIONS に任せる）
+        text = text.replace("楽天市場で", "楽天市場・Yahoo!ショッピングで", 1)
+        text = text.replace("（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
+                            "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。",
+                            "（既定は語ごとに3ページ。全量・続きの取り方は search_products と INSTRUCTIONS に従う）。", 1)     # compare_offers だけ（2000 字に収める）
+        return text.replace("。楽天は100ページ目=3000件まで", "。上限は楽天 100・Yahoo 19 ページ目まで", 1) + _MALLS_SENTENCE + more
 
     def invoke(fn, *args, check: dict, pages: int = DEFAULT_PAGES, start_page: int = 1,
                **kw) -> dict[str, Any]:
         """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。"""
         if not public:
             return fn(*args, pages=pages, start_page=start_page,
-                      adapter=service.make_adapter(local_tool=True), **kw)
+                      adapters=service.make_adapters(local_tool=True), **kw)
         try:
             gate.admit(client_ip_var.get(), **check)
         except InvalidInput as exc:
@@ -114,15 +153,15 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
                 "kind": "rate_limited",
                 "message": f"短い時間に呼び出しが多すぎる。{exc.retry_after}秒ほど待ってからやり直すこと。"}}
         else:
-            out = fn(*args, pages=pages, start_page=start_page, adapter=gate.adapter, sleep=lambda s: None,
+            out = fn(*args, pages=pages, start_page=start_page, adapters=gate.adapters, sleep=lambda s: None,
                      limits=Limits(min_interval_sec=0), **kw)
-        out.update(mcp_credit_fields())
+        out.update(mcp_credit_fields(out.get("malls") or list(gate.adapters)))      # 使ったモール（無ければ有効な全モール）のクレジット
         return out
 
     @server.tool(
         name="search_products",
         annotations=_READ_ONLY,
-        description=(
+        description=desc(
             "楽天市場で商品を検索し、候補の一覧を返す（比較はしない）。"
             "条件に合う商品を探して一覧で見たい時に使う。"
             + _NOT_JUDGED +
@@ -156,19 +195,21 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
                         min_price: int | None = None, max_price: int | None = None,
                         sort: str = "standard", pages: int = DEFAULT_PAGES, start_page: int = 1,
                         max_results: int | None = None, include_terms: list[str] | None = None,
-                        exclude_terms: list[str] | None = None) -> dict[str, Any]:
+                        exclude_terms: list[str] | None = None,
+                        malls: list[str] | None = None) -> dict[str, Any]:
         return invoke(service.search_products, keywords, ng_keyword=ng_keyword, min_price=min_price,
                       max_price=max_price, sort=sort, pages=pages, start_page=start_page,
                       max_results=max_results,
-                      include_terms=include_terms, exclude_terms=exclude_terms,
+                      include_terms=include_terms, exclude_terms=exclude_terms, malls=malls,
                       check=dict(keywords=keywords, ng_keyword=ng_keyword, min_price=min_price,
                                  max_price=max_price, sort=sort, include_terms=include_terms,
-                                 exclude_terms=exclude_terms, pages=pages, start_page=start_page))
+                                 exclude_terms=exclude_terms, pages=pages, start_page=start_page,
+                                 malls=malls))
 
     @server.tool(
         name="compare_offers",
         annotations=_READ_ONLY,
-        description=(
+        description=desc(
             "楽天市場で検索した候補を、商品名（足りない時は説明欄の見出し付きの値）から読んだ数量（個数×内容量）で単位あたりの価格に直して比べ、最安を4種類に分けて返す: "
             "(1) 商品価格が最安 (2) 基準単位あたりの単価が最安 "
             "(3) 支払総額が最安（送料が不明な候補が1件でもあれば null＝断定しない） "
@@ -202,17 +243,18 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
                        basis: str | None = None, ng_keyword: str | None = None,
                        min_price: int | None = None, max_price: int | None = None,
                        sort: str = "standard", pages: int = DEFAULT_PAGES,
-                       start_page: int = 1, desired_quantity_max: float | None = None) -> dict[str, Any]:
+                       start_page: int = 1, desired_quantity_max: float | None = None,
+                       malls: list[str] | None = None) -> dict[str, Any]:
         return invoke(service.compare_offers, keywords, include_terms, exclude_terms,
                       desired_quantity, basis, desired_quantity_max=desired_quantity_max,
-                      ng_keyword=ng_keyword, min_price=min_price,
+                      ng_keyword=ng_keyword, min_price=min_price, malls=malls,
                       max_price=max_price, sort=sort, pages=pages, start_page=start_page,
                       check=dict(keywords=keywords, ng_keyword=ng_keyword, min_price=min_price,
                                  max_price=max_price, sort=sort, include_terms=include_terms,
                                  exclude_terms=exclude_terms, basis=basis,
                                  desired_quantity=desired_quantity,
                                  desired_quantity_max=desired_quantity_max, pages=pages,
-                                 start_page=start_page))
+                                 start_page=start_page, malls=malls))
 
     if public:
         return server   # 定番品（個人の購入リスト）は公開面に出さない（AC-W8）
@@ -231,7 +273,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
     )
     def find_regular_item(regular_id: str, pages: int = DEFAULT_PAGES, start_page: int = 1) -> dict[str, Any]:
         return service.find_regular_item(regular_id, pages=pages, start_page=start_page,
-                                         adapter=service.make_adapter(local_tool=True))
+                                         adapters=service.make_adapters(local_tool=True))
 
     return server
 

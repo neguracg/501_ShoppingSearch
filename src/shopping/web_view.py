@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from jinja2 import DictLoader, Environment
 
-from .adapters.rakuten import is_item_url
-from .credit import CREDIT_HTML, FRESHNESS_TEXT, OPERATOR_TEXT
+from . import malls as malls_mod
+from .credit import credit_html, freshness_text, operator_text
 from .inputs import MAX_KEYWORDS, WIDTH_TEXT
 from .pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, quantity_marks_text, unit_price_text
 from .quantity import basis_choices, format_amount
@@ -47,7 +47,7 @@ _TEMPLATES = {
 <style>{{ css|safe }}</style></head>
 <body><main>
 <h1><a href="{{ base }}/" style="text-decoration:none;color:inherit">買い物リサーチ</a></h1>
-<p class="sub">楽天市場の商品を検索し、個数・内容量・単価・送料に注意して比べます。購入操作はしません。</p>
+<p class="sub">{{ mall_names }}の商品を検索し、個数・内容量・単価・送料に注意して比べます。購入操作はしません。</p>
 {% block body %}{% endblock %}
 </main>
 <footer>
@@ -67,7 +67,7 @@ _TEMPLATES = {
 <label for="exclude">除く語（任意。商品名に含むものは外す）</label>
 <input id="exclude" name="exclude" value="{{ form.exclude }}" placeholder="例: 本体 訳あり">
 <div class="hint">語は空白かカンマで区切ります（{{ max_terms }}語まで・1語は{{ width_text }}まで。楽天側の除外語も同じ）。仕様の違い（濃縮・型番・色など）は自動では判定しないので、ここで絞るか結果の商品名で確認してください。</div>
-<label for="ng">楽天側の除外語（任意）</label>
+<label for="ng">{{ 'モール側' if multi else '楽天側' }}の除外語（任意）</label>
 <input id="ng" name="ng" value="{{ form.ng }}">
 <label for="basis">比べる単位</label>
 <select id="basis" name="basis">
@@ -102,13 +102,13 @@ _TEMPLATES = {
 <div class="name">{{ o.name }}</div>
 <div><span class="price">{{ yen(o.price) }}</span>
  <span class="meta">／ {{ ship(o) }}{% if o.total_price is not none and o.shipping_status == 'separate' %}（総額 {{ yen(o.total_price) }}）{% endif %}</span></div>
-<div class="meta">{{ o.shop_name or '店舗不明' }} ／ {{ qty(o) }}</div>
+<div class="meta">{% if multi %}{{ mall_label(o) }} ／ {% endif %}{{ o.shop_name or '店舗不明' }} ／ {{ qty(o) }}</div>
 {% if o.review_count %}<div class="meta">レビュー {{ o.review_average }}（{{ o.review_count }}件）</div>{% endif %}
 {% if o.unit_price_outlier %}<div class="warn">要確認: {{ outlier_note }}</div>{% endif %}
 {% if o.price_varies %}<div class="warn">要確認: {{ price_varies_note }}（価格幅 {{ yen(o.price_min) }}〜{{ yen(o.price_max) }}）</div>{% endif %}
 {% if o.shipping_title_conflict %}<div class="warn">{{ o.shipping_title_conflict }}</div>{% endif %}
 <div class="meta">取得 {{ o.fetched_at or '不明' }}</div>
-{% if safe_url(o) %}<div><a href="{{ o.url }}" target="_blank" rel="noopener">楽天市場の商品ページを開く</a></div>
+{% if safe_url(o) %}<div><a href="{{ o.url }}" target="_blank" rel="noopener">{{ mall_label(o) }}の商品ページを開く</a></div>
 {% else %}<div class="meta">商品URLの形式を確認できなかったためリンクを出していません。</div>{% endif %}
 </div>
 {% endmacro %}
@@ -180,12 +180,19 @@ def _qty(o: dict) -> str:
 
 
 def _safe_url(o: dict) -> bool:
-    return o.get("url_status") == "ok" and is_item_url(o.get("url"))
+    """外部リンクにしてよいか。各モールの商品 URL の形（モールごとの is_item_url）だけ。"""
+    return o.get("url_status") == "ok" and malls_mod.is_item_url(o.get("mall"), o.get("url"))
 
 
-def render(name: str, base: str, **ctx) -> str:
+def _mall_label(o: dict) -> str:
+    return malls_mod.label(o.get("mall"))
+
+
+def render(name: str, base: str, *, malls=("rakuten",), **ctx) -> str:
+    """malls＝この画面で使えるモール。フッターのクレジット・運営者表示・説明の文言が、楽天だけの時は従来のまま、Yahoo を含む時だけ変わる。"""
     return _env.get_template(name).render(
-        base=base, css=_CSS, credit=CREDIT_HTML, operator=OPERATOR_TEXT, freshness=FRESHNESS_TEXT,
+        base=base, css=_CSS, credit=credit_html(malls), operator=operator_text(malls), freshness=freshness_text(malls),
+        mall_names="・".join(malls_mod.label(m) for m in malls), multi=len(malls) > 1, mall_label=_mall_label,
         outlier_note=OUTLIER_NOTE, price_varies_note=PRICE_VARIES_NOTE, yen=_yen, ship=_ship, qty=_qty, safe_url=_safe_url, bases=basis_choices(),
         max_terms=MAX_KEYWORDS, width_text=WIDTH_TEXT, **ctx)
 

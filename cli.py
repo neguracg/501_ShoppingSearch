@@ -1,7 +1,7 @@
 # @owns コマンドライン入口（引数解釈と人間向け表示だけ。処理は service に委譲）
 """買い物リサーチ CLI。
 
-  python cli.py search "kw1" "kw2" [--include 語 ...] [--exclude 語 ...] [--min-price N] [--max-price N] [--ng 語] [--pages N] [--start-page N] [--mock] [--json]
+  python cli.py search "kw1" "kw2" [--malls rakuten,yahoo] [--include 語 ...] [--exclude 語 ...] [--min-price N] [--max-price N] [--ng 語] [--pages N] [--start-page N] [--mock] [--json]
   python cli.py compare "kw1" ... [--include 語 ...] [--exclude 語 ...] [--basis 個|ml|g|m|W|...] [--desired-quantity N] [...]
   python cli.py regular <id> [--regulars PATH] [--mock] [--json]
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from shopping import service  # noqa: E402
+from shopping import malls, service  # noqa: E402
 from shopping.inputs import DEFAULT_PAGES, MAX_HITS, MAX_PAGES  # noqa: E402
 from shopping.pricing import OUTLIER_NOTE, PRICE_VARIES_NOTE, quantity_marks_text, unit_price_text  # noqa: E402
 from shopping.quantity import format_amount  # noqa: E402
@@ -41,13 +41,15 @@ def _add_paging_args(p: argparse.ArgumentParser) -> None:
                    help=f"語ごとに取るページ数（1〜{MAX_PAGES}。既定 {DEFAULT_PAGES}＝{DEFAULT_PAGES * MAX_HITS} 件。1 ページ約 1 秒）")
     p.add_argument("--start-page", type=int, default=1, dest="start_page",
                    help=f"取り始めるページ（1〜{MAX_PAGES}。既定 1。続きは表示される『続き』のページ番号を指定）。"
-                        f"楽天は {MAX_PAGES} ページ目（3000 件）までしか返さない")
+                        f"楽天は {MAX_PAGES} ページ目（3000 件）までしか返さない。複数のモールを検索した時は、"
+                        "続きが要るモールだけを表示どおり --malls で指定する（--start-page は全モールに効く）")
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--mock", action="store_true", help="架空データを使う（既定。API を呼ばない）")
     g.add_argument("--live", action="store_true", help="実 API を呼ぶ（認証情報が要る。運営者の開発・試験用）")
+    p.add_argument("--malls", help="検索するモール（カンマ区切り。例: rakuten,yahoo）。省略で有効な全モール（Yahoo は鍵がある時・モックでは両方）")
     p.add_argument("--json", action="store_true", help="JSON で出力")
 
 
@@ -106,11 +108,12 @@ def _qty(o: dict) -> str:
 
 def _offer_line(o: dict) -> str:
     mark = "" if o["url_status"] == "ok" else " [URL要確認]"
+    tag = "" if o.get("mall", "rakuten") == "rakuten" else f"[{malls.short_label(o['mall'])}] "     # 楽天以外のモールの候補には印
     warn = f"\n      ※要確認: {OUTLIER_NOTE}" if o.get("unit_price_outlier") else ""
     if o.get("price_varies"):
         warn += (f"\n      ※要確認: {PRICE_VARIES_NOTE}"
                  f"（価格幅 {_yen(o.get('price_min'))}〜{_yen(o.get('price_max'))}）")
-    return (f"{_yen(o['price'])} | {o['shop_name'] or '店舗不明'} | {_qty(o)} | "
+    return (f"{tag}{_yen(o['price'])} | {o['shop_name'] or '店舗不明'} | {_qty(o)} | "
             f"{_ship(o)}{mark}\n      {o['name']}\n      {o['url']}{warn}")
 
 
@@ -118,18 +121,28 @@ def _print_stats(stats: dict) -> None:
     print(f"取得 {stats['total_received']} 件 / 重複除去 {stats['duplicates_removed']} 件 / "
           f"候補 {stats['unique_offers']} 件 / 取得時刻 {stats['fetched_at']}"
           + (f" / 打ち切り: {stats['stopped_reason']}" if stats.get("stopped_reason") else ""))
+    pm = stats.get("per_mall") or []
+    if len(pm) > 1:                                   # 2 モール以上: モール別の要約
+        for m in pm:
+            err = f" エラー={m['error']}" if m.get("error") else ""
+            print(f"  ■ {malls.label(m['mall'])}: 取得 {m['fetched']} 件 / API件数 {m['api_count']}{err}"
+                  + (" / 上限で打ち切り" if m.get("truncated") else ""))
     for k in stats["per_keyword"]:
+        who = f"[{malls.short_label(k['mall'])}] " if len(pm) > 1 and k.get("mall") else ""
         err = f" エラー={k['error']}" if k["error"] else ""
         span = f"（{k['start_page']}〜{k['last_page']}ページ目）" if k.get("last_page") else ""
-        more = (f" / 続き: --start-page {k['next_page']}（残り約 {k['remaining']} 件）"
+        go = (f"--malls {k['mall']} " if len(pm) > 1 and k.get("mall") else "") + f"--start-page {k['next_page']}"   # 2 モール以上: 続きが要るモールだけ指定（start_page は全モールに効く）
+        more = (f" / 続き: {go}（残り約 {k['remaining']} 件）"
                 if k.get("next_page") and k.get("remaining") is not None
-                else f" / 続き: --start-page {k['next_page']}" if k.get("next_page") else "")
-        print(f"  - {k['keyword']}: API件数 {k['api_count']} / 取得 {k['received']}{span}{err}{more}")
+                else f" / 続き: {go}" if k.get("next_page") else "")
+        print(f"  - {who}{k['keyword']}: API件数 {k['api_count']} / 取得 {k['received']}{span}{err}{more}")
 
 
 def _print_notes(result: dict) -> None:
     for n in result.get("notes", []):
         print(f"※ {n}")
+    for c in result.get("credits", []):               # Yahoo を使った時は、使ったモールのクレジット全部（規約）
+        print(f"クレジット: {c}")
 
 
 def render_search(r: dict) -> None:
@@ -203,25 +216,26 @@ def render_compare(r: dict) -> None:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    adapter = service.make_adapter(mock=True if args.mock else (False if args.live else None),
-                                   local_tool=True)
+    adapters = service.make_adapters(mock=True if args.mock else (False if args.live else None),
+                                     local_tool=True)
+    malls = None if args.malls is None else [m.strip() for m in args.malls.split(",")]
     if args.command == "search":
         result = service.search_products(
             args.keywords, ng_keyword=args.ng_keyword, min_price=args.min_price,
             max_price=args.max_price, sort=args.sort, pages=args.pages, start_page=args.start_page,
             max_results=args.max_results, include_terms=args.include, exclude_terms=args.exclude,
-            adapter=adapter)
+            adapters=adapters, malls=malls)
         render = render_search
     elif args.command == "compare":
         result = service.compare_offers(
             args.keywords, args.include, args.exclude, args.desired_quantity, args.basis,
             desired_quantity_max=args.desired_quantity_max, ng_keyword=args.ng_keyword, min_price=args.min_price, max_price=args.max_price,
-            sort=args.sort, pages=args.pages, start_page=args.start_page, adapter=adapter)
+            sort=args.sort, pages=args.pages, start_page=args.start_page, adapters=adapters, malls=malls)
         render = render_compare
     else:
         result = service.find_regular_item(args.regular_id, regulars_path=args.regulars,
                                            pages=args.pages, start_page=args.start_page,
-                                           adapter=adapter)
+                                           adapters=adapters, malls=malls)
         render = render_compare
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

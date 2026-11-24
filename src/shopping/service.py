@@ -8,20 +8,22 @@ import time
 import unicodedata
 from dataclasses import asdict
 
-from .adapters.base import MarketplaceAdapter
+from . import malls as malls_mod
+from .adapters.base import MarketplaceAdapter, adapter_attr
 from .adapters.mock import MockAdapter
 from .adapters.rakuten import RakutenAdapter
 from .config import RakutenCredentials, load_credentials
+from .credit import credits_list
 from .models import Offer, SearchStats
-from .orchestrator import Limits, search_many
-from .inputs import (DEFAULT_PAGES, MAX_PAGES, InvalidInput, check_basis, check_desired_range,
+from .orchestrator import Limits
+from .inputs import (DEFAULT_PAGES, InvalidInput, check_basis, check_desired_range,
                      check_term_lengths)
 from .pricing import (Comparison, OrderPlan, ToCheck, compare, filter_by_terms, round_unit_price,
                       total_price, unconfirmed_reasons, unit_price_reasons)
 from .caption_quantity import read_offer_quantity
 from .regulars import Regular, RegularsError, get_regular
 
-SOURCE = "楽天市場（楽天ウェブサービス）"
+SOURCE = RakutenAdapter.source
 CAPTION_MAX = 200
 MOCK_ENV = "SHOPPING_MOCK"
 
@@ -48,6 +50,13 @@ def make_adapter(mock: bool | None = None, credentials: RakutenCredentials | Non
         return MockAdapter()
     creds = credentials or load_credentials()
     return RakutenAdapter(creds.app_id, creds.access_key)
+
+
+def make_adapters(mock: bool | None = None, credentials: RakutenCredentials | None = None,
+                  *, local_tool: bool = False) -> dict[str, MarketplaceAdapter]:
+    """有効なモールのアダプタ（モール名 → アダプタ。楽天が先）。楽天は make_adapter（従来どおり）、他のモールは同じ種類
+    〔モック→モック・本物→鍵がある時だけ〕を malls.default_adapters が並べる。"""
+    return malls_mod.default_adapters(make_adapter(mock, credentials, local_tool=local_tool))
 
 
 def _error(kind: str, message: str, **extra) -> dict:
@@ -115,6 +124,12 @@ def offer_to_dict(offer: Offer, known_urls: list[str] | None = None) -> dict:
         "price_varies": offer.price_varies,
         "asuraku_flag": offer.asuraku_flag,
         "asuraku_closing_time": offer.asuraku_closing_time,
+        # WP17（§5b）: モールが付ける参考。points_amount＝円相当の参考値（総額・単価・最安には使わない）、shipping_condition＝
+        # conditional_free（条件付き送料無料）、condition＝商品の状態、sale＝セール中の参考。楽天は None
+        "points_amount": offer.points_amount,
+        "shipping_condition": offer.shipping_condition,
+        "condition": offer.condition,
+        "sale": None if offer.sale is None else dict(offer.sale),
     }
     if known_urls is not None:
         d["is_known_url"] = offer.item_url in known_urls
@@ -134,8 +149,16 @@ def _validate_keywords(keywords) -> list[str] | dict:
     return [k.strip() for k in keywords]
 
 
-def _search(keywords, adapter, *, pages, start_page, hits, limits, sleep, filters):
-    """(offers, stats, mock) または エラー dict。"""
+def _adapter_map(adapter, adapters) -> dict[str, MarketplaceAdapter]:
+    """呼び出しが渡したアダプタ。adapter（従来の単独指定）は {adapter.mall: adapter} と同じ意味。どちらも無ければ有効な全モール（鍵のあるモール）。"""
+    out: dict[str, MarketplaceAdapter] = dict(adapters or {})
+    if adapter is not None:
+        out.setdefault(getattr(adapter, "mall", "") or "rakuten", adapter)
+    return out if out else make_adapters(local_tool=True)
+
+
+def _search(keywords, adapter, *, pages, start_page, hits, limits, sleep, filters, adapters=None, malls=None):
+    """(offers, stats, mock, 使ったモールのアダプタ) または エラー dict。"""
     kws = _validate_keywords(keywords)
     if isinstance(kws, dict):
         return kws
@@ -145,20 +168,23 @@ def _search(keywords, adapter, *, pages, start_page, hits, limits, sleep, filter
             check_term_lengths(filters["ng_keyword"], "除外語（楽天側）")
     except InvalidInput as exc:
         return _error(exc.kind, str(exc))
-    adapter = adapter if adapter is not None else make_adapter(local_tool=True)
-    mock = isinstance(adapter, MockAdapter) or bool(getattr(adapter, "is_mock", False))
+    try:
+        used = malls_mod.select(_adapter_map(adapter, adapters), malls)     # 無効・未知・空のモール指定は API を呼ばずに弾く（C2）
+    except InvalidInput as exc:
+        return _error(exc.kind, str(exc))
+    mock = any(isinstance(a, MockAdapter) or bool(getattr(a, "is_mock", False)) for a in used.values())
     if sleep is None:
         sleep = (lambda s: None) if mock else time.sleep
     try:
-        offers, stats = search_many(adapter, kws, max_pages=pages, start_page=start_page, hits=hits,
-                                    limits=limits or Limits(), sleep=sleep, **filters)
+        offers, stats = malls_mod.search_malls(used, kws, max_pages=pages, start_page=start_page, hits=hits,
+                                               limits=limits or Limits(), sleep=sleep, **filters)
     except ValueError as exc:  # 上限超え・不正値（メッセージは自前の文言のみ）
         return _error("invalid_request", str(exc))
     if not offers and stats.per_keyword and all(s.error for s in stats.per_keyword):
-        first = stats.per_keyword[0].error
+        first = stats.per_keyword[0].error          # 全モールが失敗した時は最初に失敗したモール（楽天が先）の種別
         return _error(first, f"全キーワードの検索に失敗した（{first}）",
                       stats=_stats_to_dict(stats), mock=mock)
-    return offers, stats, mock
+    return offers, stats, mock, used
 
 
 _TITLE_FREE_SHIP = ("送料無料", "送料込", "送料0円", "送料込み")
@@ -166,25 +192,27 @@ _TITLE_SEPARATE_SHIP = ("送料別", "別途送料", "送料は別", "送料お�
 
 
 def shipping_title_conflict(offer: Offer) -> str | None:
-    """タイトルの送料表記と楽天のフラグ（postageFlag 由来の shipping_status）が食い違う時の説明。
+    """タイトルの送料表記とモールのフラグ（楽天 postageFlag・Yahoo shipping.code 由来の shipping_status）が食い違う時の説明。
 
     送料はフラグを正とする（タイトルの文字で送料を決めない）。食い違いは注意として出すだけ。"""
     title = unicodedata.normalize("NFKC", offer.item_name or "")
+    who = malls_mod.short_label(offer.mall)
     if offer.shipping_status == "separate" and any(w in title for w in _TITLE_FREE_SHIP):
-        return ("タイトルに「送料無料」等の表記があるが、楽天のデータでは送料別。"
+        return (f"タイトルに「送料無料」等の表記があるが、{who}のデータでは送料別。"
                 "条件付き（一定額以上で無料など）の可能性があるため、購入前に商品ページで確認すること")
     if offer.shipping_status == "included" and any(w in title for w in _TITLE_SEPARATE_SHIP):
-        return ("タイトルに「送料別」等の表記があるが、楽天のデータでは送料込み。"
+        return (f"タイトルに「送料別」等の表記があるが、{who}のデータでは送料込み。"
                 "購入前に商品ページで確認すること")
     return None
 
 
 def _shipping_conflict_note(offers: list[Offer]) -> str | None:
-    n = sum(1 for o in offers if shipping_title_conflict(o))
-    if not n:
+    hit = [o for o in offers if shipping_title_conflict(o)]
+    if not hit:
         return None
-    return (f"タイトルの送料表記と楽天のデータ（送料込み/別）が食い違う候補が {n} 件ある。"
-            "送料は楽天のデータを正として扱い、タイトルの文字では決めていない。購入前に商品ページで確認すること。")
+    who = "・".join(dict.fromkeys(malls_mod.short_label(o.mall) for o in hit))
+    return (f"タイトルの送料表記と{who}のデータ（送料込み/別）が食い違う候補が {len(hit)} 件ある。"
+            f"送料は{who}のデータを正として扱い、タイトルの文字では決めていない。購入前に商品ページで確認すること。")
 
 
 def _annotate(offers: list[Offer]) -> None:
@@ -192,9 +220,57 @@ def _annotate(offers: list[Offer]) -> None:
         o.quantity = read_offer_quantity(o)
 
 
+def _source_fields(used: dict) -> dict:
+    """結果の出典まわり。source は使ったモールの出典（楽天だけの時は従来の文字列）、malls は使ったモール。
+    楽天だけでない時は sources（一覧）、Yahoo を使った時は credits（クレジットの一覧。既存の credit〔楽天〕は変えない）。"""
+    names = list(used)
+    out: dict = {"source": " / ".join(malls_mod.source(m) for m in names), "malls": names}
+    if names != ["rakuten"]:
+        out["sources"] = [malls_mod.source(m) for m in names]
+    if "yahoo" in names:
+        out["credits"] = credits_list(names)
+    return out
+
+
+def _mall_attr(mall: str, name: str):
+    """モール名からアダプタのクラス属性（上限・表示名）を引く。未知のモールは楽天相当の既定。"""
+    return adapter_attr(malls_mod.REGISTRY.get(mall), name)
+
+
+def _mall_notes(stats: SearchStats, used: dict, filters: dict) -> list[str]:
+    """モール別の注記（C5・Y2〜Y4）。1 モールだけの検索（楽天のみ）では、従来の文言のまま。"""
+    notes: list[str] = []
+    multi = len(used) > 1
+    for ms in stats.per_mall:
+        lab = malls_mod.label(ms.mall)
+        ad = used.get(ms.mall)
+        if multi and ms.error:       # 片方のモールが全部失敗しても、もう片方の結果で比べる（全モールが失敗した時は error 応答）
+            others = "・".join(malls_mod.short_label(o.mall) for o in stats.per_mall if o is not ms and not o.error)
+            notes.append(f"{lab}は {ms.error} で取得できなかった（{others}だけで比較）")
+        if ms.stopped_reason == "rate_limited" and ms.mall == "rakuten":
+            notes.append("楽天APIの流量制限(429)で残りの検索を打ち切った。時間をおいて再実行すること。")
+        elif ms.stopped_reason == "rate_limited":
+            notes.append(f"{lab}の流量制限（rate_limited）で残りの検索を打ち切った。時間をおいて再実行すること。")
+        elif ms.stopped_reason == "server_error":
+            notes.append(f"{lab}が server_error を返したため、残りの検索を打ち切った。時間をおいて再実行すること。")
+        if ms.skipped:
+            notes.append(f"{lab}の応答のうち、読めない {ms.skipped} 件を捨てた。")
+        cls = malls_mod.REGISTRY.get(ms.mall)       # 検索条件の読み替えの注記はモールのクラスから（包んだ・偽物のアダプタでも同じ）
+        if cls is not None:
+            notes.extend(cls.request_notes(ad, sort=filters.get("sort", "standard"), ng_keyword=filters.get("ng_keyword")))
+        ceiling_note = _mall_attr(ms.mall, "ceiling_note")
+        if ceiling_note and any(s.mall == ms.mall and s.truncated and s.next_page is None for s in stats.per_keyword):
+            notes.append(ceiling_note)
+    return notes
+
+
 def _base_notes(offers: list[Offer], stats: SearchStats, mock: bool, hits: int,
-                *, shipping_conflict: bool = True, paging_notes: bool = True) -> list[str]:
-    notes = [_FRESHNESS_NOTE, f"出典: {SOURCE}"]
+                *, shipping_conflict: bool = True, paging_notes: bool = True,
+                used: dict | None = None, filters: dict | None = None) -> list[str]:
+    malls_used = list(used) if used else ["rakuten"]
+    multi = len(malls_used) > 1
+    sources = [malls_mod.source(m) for m in malls_used]
+    notes = [_FRESHNESS_NOTE, "出典: " + " / ".join(sources)]
     if mock:
         notes.insert(0, _MOCK_NOTE)
     review = sum(1 for o in offers if o.item_url_status != "ok")
@@ -204,36 +280,48 @@ def _base_notes(offers: list[Offer], stats: SearchStats, mock: bool, hits: int,
     conflict = _shipping_conflict_note(offers) if shipping_conflict else None
     if conflict:
         notes.append(conflict)
-    errs = [f"{s.keyword}: {s.error}" for s in stats.per_keyword if s.error]
+    errs = [(f"{malls_mod.label(s.mall)} " if multi else "") + f"{s.keyword}: {s.error}" for s in stats.per_keyword if s.error]
     if errs:
         notes.append("一部の検索でエラー: " + " / ".join(errs))
-    if stats.stopped_reason == "rate_limited":
-        notes.append("楽天APIの流量制限(429)で残りの検索を打ち切った。時間をおいて再実行すること。")
+    notes.extend(_mall_notes(stats, used or {m: None for m in malls_used}, filters or {}))
     if paging_notes:                  # 続きの取り方は MCP・CLI 向け。Web 画面は 1 ページ固定なので出さない
-        notes.extend(_paging_notes(stats, hits))
+        notes.extend(_paging_notes(stats, hits, multi))
     return notes
 
 
-def _paging_notes(stats: SearchStats, hits: int) -> list[str]:
+def _paging_notes(stats: SearchStats, hits: int, multi: bool = False) -> list[str]:
     """全量と取得範囲、続きの取り方（語ごと）。利用者に全量と取得範囲を伝えるための材料。"""
     notes: list[str] = []
     if stats.stopped_reason == "time_limit":
-        notes.append("時間の上限で途中まで。取れた分だけ返した。続きは下記の start_page で呼ぶこと。")
+        notes.append("時間の上限で途中まで。取れた分だけ返した。続きは下記の" + ("モール（malls）と " if multi else " ") + "start_page で呼ぶこと。")
     more = [s for s in stats.per_keyword if s.next_page is not None]
+
+    def who(s):
+        return f"（{malls_mod.label(s.mall)}）" if multi else ""
+
+    def how(s):
+        """続きの呼び方。2 モール以上の時、start_page は全モールに効くので、続きが要るモールだけを malls で指定する。"""
+        return (f"malls=['{s.mall}'] を指定して " if multi else "") + f"start_page={s.next_page} で呼ぶ"
     for s in more:
         if s.pages_fetched:
             rest = f"（残り約 {s.remaining} 件）" if s.remaining is not None else ""
-            notes.append(f"「{s.keyword}」はヒット {s.api_count} 件のうち {s.start_page}〜{s.last_page} ページ目の "
-                         f"{s.received} 件を取得{rest}。続きは start_page={s.next_page} で呼ぶ。")
+            notes.append(f"「{s.keyword}」{who(s)}はヒット {s.api_count} 件のうち {s.start_page}〜{s.last_page} ページ目の "
+                         f"{s.received} 件を取得{rest}。続きは {how(s)}。")
         else:
-            notes.append(f"「{s.keyword}」は未取得。start_page={s.next_page} で呼ぶ。")
+            notes.append(f"「{s.keyword}」{who(s)}は未取得。{how(s)}。")
     if len(more) and len(stats.per_keyword) > 1:
         notes.append("続きを取る時は、続きが要る語だけを keywords に指定すること（他の語は同じページを取り直してしまう）。")
-    ceiling = MAX_PAGES * hits
-    over = [s for s in stats.per_keyword if s.api_count is not None and s.api_count > ceiling]
-    for s in over:
-        notes.append(f"「{s.keyword}」はヒット {s.api_count} 件だが、楽天が返すのは {MAX_PAGES} ページ目"
-                     f"（先頭 {ceiling} 件）まで。絞り込み（語・価格・ng_keyword）で件数を減らすこと。")
+    if len(more) and multi:
+        notes.append("start_page は全モールに効く。続きが要るモールだけを malls で指定すること"
+                     "（続きの無いモールまで呼ぶと、範囲外のページを要求して失敗する・同じページを取り直す）。")
+    for s in stats.per_keyword:                  # 楽天は 100 ページ目で件数の天井。Yahoo は ceiling_note（_mall_notes）が案内する
+        if _mall_attr(s.mall or "rakuten", "ceiling_note"):
+            continue
+        max_page = _mall_attr(s.mall or "rakuten", "max_page")
+        ceiling = max_page * hits
+        if s.api_count is not None and s.api_count > ceiling:
+            notes.append(f"「{s.keyword}」{who(s)}はヒット {s.api_count} 件だが、{malls_mod.short_label(s.mall or 'rakuten')}が返すのは {max_page} ページ目"
+                         f"（先頭 {ceiling} 件）まで。絞り込み（語・価格・ng_keyword）で件数を減らすこと。")
     return notes
 
 
@@ -242,7 +330,8 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
                     start_page: int = 1, hits: int = 30, max_results: int | None = None,      # hits 30 は楽天の上限（1 ページ最大）
                     include_terms=None, exclude_terms=None,
                     adapter: MarketplaceAdapter | None = None, sleep=None,
-                    limits: Limits | None = None, paging_notes: bool = True) -> dict:
+                    limits: Limits | None = None, paging_notes: bool = True,
+                    adapters: dict[str, MarketplaceAdapter] | None = None, malls: list[str] | None = None) -> dict:
     inc = _terms_arg(include_terms, "include_terms")
     exc = _terms_arg(exclude_terms, "exclude_terms")
     for v in (inc, exc):
@@ -250,17 +339,17 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
             return v
     filters = dict(ng_keyword=ng_keyword, min_price=min_price, max_price=max_price, sort=sort)
     r = _search(keywords, adapter, pages=pages, start_page=start_page, hits=hits, limits=limits,
-                sleep=sleep, filters=filters)
+                sleep=sleep, filters=filters, adapters=adapters, malls=malls)
     if isinstance(r, dict):
         return r
-    offers, stats, mock = r
+    offers, stats, mock, used = r
     _annotate(offers)
     kept, term_notes = filter_by_terms(offers, inc, exc)     # 比較（compare）と同じ絞り込み（S9）
     shown = kept if max_results is None else kept[:max(0, max_results)]   # None は全件（切り詰めは利用者が max_results を指定した時だけ）
-    notes = _base_notes(kept, stats, mock, hits, paging_notes=paging_notes) + term_notes
+    notes = _base_notes(kept, stats, mock, hits, paging_notes=paging_notes, used=used, filters=filters) + term_notes
     if len(shown) < len(kept):
         notes.append(f"候補 {len(kept)} 件のうち先頭 {len(shown)} 件だけ返した（max_results）。")
-    return {"ok": True, "source": SOURCE, "mock": mock, "keywords": _validate_keywords(keywords),
+    return {"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
             "include_terms": inc, "exclude_terms": exc,
             "stats": _stats_to_dict(stats), "returned": len(shown),
             "offers": [offer_to_dict(o) for o in shown], "notes": notes}
@@ -272,7 +361,7 @@ def order_plan_to_dict(p: OrderPlan) -> dict:
     kind = ("payment_total" if p.confirmed else                    # 確認済みの案だけ支払総額（§8 Q23。WP15 レビュー B1）
             "unconfirmed_total" if p.shipping_status == "included" else "item_subtotal")
     return {
-        "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
+        "mall": o.mall, "item_code": o.mall_item_code, "name": o.item_name, "shop_name": o.shop_name,
         "url": o.item_url, "url_status": o.item_url_status,
         "price": o.price, "price_min": o.price_min, "price_max": o.price_max, "price_varies": o.price_varies,
         "n": p.n, "order_quantity": p.order_quantity, "order_total": p.order_total,
@@ -337,7 +426,7 @@ def _terms_arg(value, name: str) -> list[str] | None | dict:
 def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basis, *, adapter,
                   pages, start_page, hits, limits, sleep, filters, known_urls=None,
                   group_offers_max: int | None = None, paging_notes: bool = True,
-                  desired_quantity_max=None) -> dict:
+                  desired_quantity_max=None, adapters=None, malls=None) -> dict:
     inc = _terms_arg(include_terms, "include_terms")
     exc = _terms_arg(exclude_terms, "exclude_terms")
     for v in (inc, exc):
@@ -351,10 +440,10 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
     except InvalidInput as exc:
         return _error("invalid_request", str(exc))
     r = _search(keywords, adapter, pages=pages, start_page=start_page, hits=hits, limits=limits,
-                sleep=sleep, filters=filters)
+                sleep=sleep, filters=filters, adapters=adapters, malls=malls)
     if isinstance(r, dict):
         return r
-    offers, stats, mock = r
+    offers, stats, mock, used = r
     _annotate(offers)
     comparison = compare(offers, include_terms=inc, exclude_terms=exc,
                          desired_quantity=desired_quantity, basis=basis,
@@ -363,8 +452,8 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
     if conflict:
         comparison.caveats.append(conflict)
     notes = _base_notes(offers, stats, mock, hits, shipping_conflict=False,
-                         paging_notes=paging_notes) + comparison.notes
-    return {"ok": True, "source": SOURCE, "mock": mock, "keywords": _validate_keywords(keywords),
+                         paging_notes=paging_notes, used=used, filters=filters) + comparison.notes
+    return {"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
             "include_terms": inc, "exclude_terms": exc, "desired_quantity": desired_quantity,
             "desired_quantity_max": desired_quantity_max, "basis": comparison.basis, "stats": _stats_to_dict(stats),
             "comparison": _comparison_to_dict(comparison, known_urls, group_offers_max),
@@ -377,12 +466,14 @@ def compare_offers(keywords, include_terms=None, exclude_terms=None, desired_qua
                    sort: str = "standard", pages: int | None = DEFAULT_PAGES, start_page: int = 1,
                    hits: int = 30, adapter: MarketplaceAdapter | None = None, sleep=None,
                    limits: Limits | None = None, group_offers_max: int | None = None,
-                   paging_notes: bool = True, desired_quantity_max: float | None = None) -> dict:
+                   paging_notes: bool = True, desired_quantity_max: float | None = None,
+                   adapters: dict[str, MarketplaceAdapter] | None = None, malls: list[str] | None = None) -> dict:
     filters = dict(ng_keyword=ng_keyword, min_price=min_price, max_price=max_price, sort=sort)
     return _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basis,
                          adapter=adapter, pages=pages, start_page=start_page, hits=hits, limits=limits,
                          sleep=sleep, filters=filters, group_offers_max=group_offers_max,
-                         paging_notes=paging_notes, desired_quantity_max=desired_quantity_max)
+                         paging_notes=paging_notes, desired_quantity_max=desired_quantity_max,
+                         adapters=adapters, malls=malls)
 
 
 def _regular_info(r: Regular) -> dict:
@@ -404,7 +495,8 @@ _REGULARS_MESSAGES = {
 def find_regular_item(regular_id: str, *, regulars_path=None, pages: int | None = DEFAULT_PAGES,
                       start_page: int = 1, hits: int = 30,
                       adapter: MarketplaceAdapter | None = None, sleep=None,
-                      limits: Limits | None = None) -> dict:
+                      limits: Limits | None = None,
+                      adapters: dict[str, MarketplaceAdapter] | None = None, malls: list[str] | None = None) -> dict:
     if not isinstance(regular_id, str) or not regular_id.strip():
         return _error("invalid_request", "regular_id は文字列で指定する")
     try:
@@ -417,6 +509,6 @@ def find_regular_item(regular_id: str, *, regulars_path=None, pages: int | None 
     out = _compare_flow(reg.keywords, reg.include_terms or None, reg.exclude_terms or None,
                         reg.desired_quantity, reg.basis, adapter=adapter, pages=pages, start_page=start_page,
                         hits=hits, limits=limits,
-                        sleep=sleep, filters={}, known_urls=reg.known_urls)
+                        sleep=sleep, filters={}, known_urls=reg.known_urls, adapters=adapters, malls=malls)
     out["regular"] = _regular_info(reg)
     return out

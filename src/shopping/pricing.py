@@ -8,7 +8,7 @@ from collections import Counter
 from statistics import median
 from dataclasses import dataclass, field
 
-from . import counter_basis
+from . import counter_basis, malls
 from .caption_adopt import adopt_u1_contents
 from .caption_quantity import read_offer_quantity
 from .inputs import check_desired_range, resolve_compare_basis
@@ -37,6 +37,8 @@ def unconfirmed_reasons(o: Offer, *, shipping: bool = False) -> list[str]:
     ∧ 1袋の中身が基準と一致する ∧ 選択肢で価格が変わらない ∧ 外れ値でない（∧ shipping=True の時は送料が確定）。
     理由の語: quantity_unknown / caption_conflict / price_varies / unit_price_outlier / quantity_from_caption / measure_from_caption /
     quantity_low / pack_content_differs / shipping_separate / shipping_unknown（counter_assumed は注文案の換算の仮定で、案の側が足す。counter_basis.py）。
+    WP17 P1: Offer.mall_unconfirmed（アダプタが付けた語。price_options_unchecked / price_tax_unknown / condition_not_new）をそのまま足す
+    （price_varies の次。単価の未確定理由 unit_price_reasons にも同じ語が入る）。確認済みの定義は広げない（Yahoo の候補は今の情報では確認済みにならない）。
     WP16: 確認済みの定義は広げない（quantity_low は以前から確認済みでなかった題名 low の候補に仮の単価が付くようになった分の分類）。"""
     reasons: list[str] = []
     q = o.quantity
@@ -59,6 +61,7 @@ def unconfirmed_reasons(o: Offer, *, shipping: bool = False) -> list[str]:
         reasons.append("pack_content_differs")
     if o.price_varies:
         reasons.append("price_varies")
+    reasons.extend(r for r in o.mall_unconfirmed if r not in reasons)      # モールが付けた理由（WP17 P1。Yahoo: 選択肢ごとの価格・税・状態を確かめていない）
     if o.unit_price_outlier:
         reasons.append("unit_price_outlier")
     if shipping and total_price(o) is None:
@@ -91,6 +94,9 @@ UNIT_PRICE_REASON_TEXT = {
     "quantity_low": "題名に食い違う数があり、読みの1つを仮に使った数量",
     "counter_assumed": "数え語の換算を仮定",
     "pack_content_differs": "1袋の中身が違う",
+    "price_options_unchecked": "選択肢ごとの価格を確かめていない",
+    "price_tax_unknown": "税込・税抜が不明",
+    "condition_not_new": "新品でない可能性",
 }
 
 
@@ -403,6 +409,21 @@ def _unit_raw(p: OrderPlan) -> float:
 _MONEY = ("shipping_separate", "shipping_unknown", "price_varies")
 
 
+def _mall_reason_text(reason: str, o: Offer) -> str:
+    """モールが付けた理由（WP17 P1・P2）の条件文。〈確認すること〉だけ（前置き・末尾の句点は呼び出し側）。"""
+    if reason == "price_options_unchecked":
+        price = "表示価格" if o.price is None else f"{o.price:,}円"
+        return f"{malls.label(o.mall)}の商品ページで、選んだ色・サイズ・数量の価格が{price}のままか確認"
+    if reason == "price_tax_unknown":
+        return "税込・税抜の表示が確認できない（税抜かもしれない）。商品ページで税込価格を確認"
+    if reason == "condition_not_new":
+        return "新品でない（または状態が読めない）可能性がある。商品ページで商品の状態を確認"
+    return reason
+
+
+MALL_REASONS = ("price_options_unchecked", "price_tax_unknown", "condition_not_new")
+
+
 def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) -> list[dict]:
     """確認済みでない理由から「こうなら逆転する」条件を 1 つの文にまとめる（WP14 B3）。best は確認済みの最安の注文案（無ければ None）。
     金額に関わる理由（送料別・不明／選択肢で価格が変わる）は合算の条件にする: この案の（選択肢の価格×n＋送料）が X 円未満なら安い。
@@ -427,6 +448,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
             pre.append(plan.notes.get(r, "1袋の中身が違う。"))
         elif r == "unit_price_outlier":
             pre.append(f"{OUTLIER_NOTE}。数量が正しければ、")
+        elif r in MALL_REASONS:
+            pre.append(_mall_reason_text(r, o) + "。")
     # 逆転できる上限額 X（この案の総額が X 円未満なら確認済みの最安より安い）
     limit = None
     if best is not None:
@@ -476,7 +499,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                                     "（換算の仮定。商品ページで確認）",
                  "pack_content_differs": plan.notes.get("pack_content_differs", "1袋の中身が違う。")
                                          + "基準と中身が違うので同じ最安競争にしていない。商品ページで確認",
-                 "unit_price_outlier": OUTLIER_NOTE}
+                 "unit_price_outlier": OUTLIER_NOTE,
+                 **{r: _mall_reason_text(r, o) for r in MALL_REASONS}}
         text = "。".join(alone[r] for r in plan.reasons if r in alone)
     if not plan.reasons:
         return []
@@ -548,7 +572,9 @@ def _group_caveats(plans: list[OrderPlan], best: OrderPlan | None, name: str,
         label = {"shipping_separate": "送料別", "shipping_unknown": "送料不明", "price_varies": "選択肢で価格が変わる",
                  "unit_price_outlier": "数量の読み違いの疑い", "quantity_from_caption": "説明欄から補完した数量",
                  "caption_conflict": "題名と説明欄の数量が食い違う", "measure_from_caption": "説明欄から補った内容量",
-                 "quantity_low": "題名 low の読みを仮に使った数量", "counter_assumed": "数え語の換算を仮定", "pack_content_differs": "1袋の中身が違う"}
+                 "quantity_low": "題名 low の読みを仮に使った数量", "counter_assumed": "数え語の換算を仮定", "pack_content_differs": "1袋の中身が違う",
+                 "price_options_unchecked": "選択肢ごとの価格が未確認", "price_tax_unknown": "税込・税抜が不明",
+                 "condition_not_new": "新品でない可能性"}
         detail = "・".join(f"{label[k]} {v}件" for k, v in parts.items() if k in label)
         out.append(f"確認済み（数量が商品名から読め・価格が選択肢で変わらず・外れ値でなく・送料込み）の注文の候補がない"
                    f"（足りない条件: {detail}）。to_check に条件付きの候補を安い順に出した")
@@ -689,6 +715,15 @@ def compare(offers: list[Offer], include_terms=None, exclude_terms=None,
     if varies:
         caveats.append(f"選択肢によって価格が変わる候補: {len(varies)}件（表示価格が商品名の数量の選択肢の価格とは"
                        "限らないため、単位価格・注文の最安から外した）")
+
+    for reason, why in (("price_options_unchecked", "検索 API に選択肢（色・サイズ・数量）ごとの価格が無く、表示価格が商品名の数量の価格とは限らない"),
+                        ("price_tax_unknown", "価格が税込か税抜か確認できない"),
+                        ("condition_not_new", "新品でない、または状態が読めない")):
+        flagged = [o for o in candidates if reason in o.mall_unconfirmed]
+        if flagged:
+            names = "・".join(dict.fromkeys(malls.label(o.mall) for o in flagged))
+            caveats.append(f"{names}の候補のうち {len(flagged)} 件は{why}ため、確認済みではない"
+                           "（単位価格・注文の最安には選ばず、安い時は to_check に条件つきで出した。商品ページで確認）")
 
     from_caption = [o for o in members if o.quantity.source == "caption"]
     if from_caption:
