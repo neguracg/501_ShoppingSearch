@@ -21,10 +21,16 @@ class AdapterError(Exception):
         return f"AdapterError({self.kind!r})"
 
 
+def adapter_attr(adapter, name: str):
+    """モール別の属性を引く。属性を持たないアダプタ（試験の偽物・包んだ物）は、楽天相当の既定（MarketplaceAdapter の値）。"""
+    return getattr(adapter, name, getattr(MarketplaceAdapter, name))
+
+
 class MarketplaceAdapter(ABC):
     """モールごとの値（上限・流量・URL の形・表示名）はサブクラスの属性に持つ。外（orchestrator・guard・web・service）は属性を引くだけ。"""
     mall: str = ""
     label: str = ""                       # 利用者に見せるモール名
+    short_label: str = ""                 # 文中で「〇〇のデータでは」と言う時の短い名前
     source: str = ""                      # 出典の表記（notes・結果の source）
     max_hits: int = 30                    # 1 ページの最大件数
     page_size: int | None = None          # 1 ページの件数が固定のモールはその値（None は呼び出し側の hits）

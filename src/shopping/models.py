@@ -140,7 +140,7 @@ class KeywordStat:
 class MallStat:
     """モール別の要約（WP17 C4）。api_count は語ごとの api_count の和（読めた語だけ。1 つも無ければ None）。"""
     mall: str
-    received: int = 0
+    fetched: int = 0                  # 取得件数
     api_count: int | None = None
     error: str | None = None          # 全部の語が失敗した時の最初の種別（一部の語だけの失敗は per_keyword の error）
     truncated: bool = False           # どれかの語に続きがある、またはモールの上限で打ち切った

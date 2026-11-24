@@ -210,7 +210,7 @@ def test_unreadable_hits_are_counted_and_dropped():
     ad, _ = make(body)
     offers, count = ad.search("x")
     assert len(offers) == 3 and count == 194
-    assert offers.skipped == 3
+    assert offers.skipped == 3 and ad.last_skipped == 3
 
 
 @pytest.mark.parametrize("body", [
@@ -347,7 +347,7 @@ def test_ng_keyword_is_applied_to_names_and_not_sent():
     assert all(word.lower() not in n.lower() for n in [o.item_name for o in kept])
 
 
-@pytest.mark.parametrize("bad", [dict(hits=0), dict(hits=51), dict(page=0), dict(page=21), dict(page=-1),
+@pytest.mark.parametrize("bad", [dict(hits=0), dict(hits=51), dict(page=0), dict(page=20), dict(page=21), dict(page=-1),
                                  dict(hits=True), dict(page=True)])
 def test_bad_paging_rejected_without_request(bad):
     ad, op = make(EMPTY)
@@ -356,15 +356,15 @@ def test_bad_paging_rejected_without_request(bad):
     assert e.value.kind == "invalid_request" and op.requests == []
 
 
-def test_last_page_is_20_and_starts_at_951():
+def test_last_page_is_19_and_starts_at_901():
     ad, op = make(EMPTY)
-    ad.search("x", page=20)
-    assert parse_qs(urlsplit(op.requests[0].full_url).query)["start"] == ["951"]
+    ad.search("x", page=19)
+    assert parse_qs(urlsplit(op.requests[0].full_url).query)["start"] == ["901"]
 
 
 def test_adapter_attributes_for_the_binder():
     ad = YahooAdapter(CLIENT_ID)
-    assert (ad.mall, ad.label, ad.max_hits, ad.page_size, ad.max_page) == ("yahoo", "Yahoo!ショッピング", 50, 50, 20)
+    assert (ad.mall, ad.label, ad.max_hits, ad.page_size, ad.max_page) == ("yahoo", "Yahoo!ショッピング", 50, 50, 19)
     assert ad.min_interval_sec >= 2.2 and ad.stop_kinds == ("rate_limited", "server_error")
     assert ad.is_item_url("https://store.shopping.yahoo.co.jp/s/i.html") is True
     assert ad.empty_means_end is False and "1000" in ad.ceiling_note

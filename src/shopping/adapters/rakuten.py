@@ -89,6 +89,7 @@ def parse_item(item: object, fetched_at: str) -> Offer:
 class RakutenAdapter(MarketplaceAdapter):
     mall = "rakuten"
     label = "楽天市場"
+    short_label = "楽天"
     source = "楽天市場（楽天ウェブサービス）"
     max_hits = MAX_HITS              # 出典: 楽天 IchibaItem Search 仕様（hits 1〜30）
     max_page = MAX_PAGES             # 出典: 同（page 1〜100）

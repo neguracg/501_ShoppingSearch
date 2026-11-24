@@ -162,6 +162,23 @@ def check_page_range(start_page, pages) -> tuple[int, int]:
     return s, n
 
 
+def check_malls(malls, enabled) -> list[str] | None:
+    """検索するモールの指定の検査（WP17 C2）。None＝省略＝有効な全モール。指定する時は、有効なモール（enabled）の名前の
+    空でないリスト（重複は 1 つにする）。無効・未知のモール・形の違いは InvalidInput（API を呼ぶ前に弾く）。
+    検査後の値（指定順・重複なし）か None を返す。公開面の Gate・service・CLI がここを呼ぶ。"""
+    if malls is None:
+        return None
+    items = [malls] if isinstance(malls, str) else list(malls) if isinstance(malls, (list, tuple)) else None
+    if not items or not all(isinstance(m, str) for m in items):
+        raise InvalidInput("malls は " + " / ".join(enabled) + " の名前のリストで指定してください（省略すると有効な全モール）。")
+    names = list(dict.fromkeys(m.strip() for m in items))
+    bad = [m for m in names if m not in enabled]
+    if bad:
+        shown = _printable(bad[0])[:20]
+        raise InvalidInput(f"指定できるモールは {' / '.join(enabled)} です（『{shown}』は無効、または鍵が無く使えません）。")
+    return names
+
+
 def validate(*, keywords, ng_keyword=None, min_price=None, max_price=None, sort="standard",
              include_terms=None, exclude_terms=None, basis=None, desired_quantity=None,
              desired_quantity_max=None, pages=None, start_page=None) -> None:

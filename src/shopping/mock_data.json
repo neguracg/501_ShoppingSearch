@@ -1,5 +1,5 @@
 {
-  "count": 19,
+  "count": 21,
   "Items": [
     {
       "itemCode": "exshop-a:det-6",
@@ -265,6 +265,168 @@
       "reviewCount": 136,
       "pointRate": 1,
       "itemCaption": ""
+    },
+    {
+      "itemCode": "exshop-t:kairo-60",
+      "itemName": "【架空】貼るカイロ レギュラー 60枚",
+      "itemPrice": 1500,
+      "itemUrl": "https://item.rakuten.co.jp/exshop-t/kairo-60/",
+      "shopName": "架空堂T",
+      "shopCode": "exshop-t",
+      "availability": 1,
+      "reviewAverage": 4.0,
+      "reviewCount": 20,
+      "pointRate": 1,
+      "itemCaption": "",
+      "postageFlag": 0
+    },
+    {
+      "itemCode": "exshop-u:kairo-30",
+      "itemName": "【架空】貼るカイロ レギュラー 30枚",
+      "itemPrice": 900,
+      "itemUrl": "https://item.rakuten.co.jp/exshop-u/kairo-30/",
+      "shopName": "架空堂U",
+      "shopCode": "exshop-u",
+      "availability": 1,
+      "reviewAverage": 4.0,
+      "reviewCount": 20,
+      "pointRate": 1,
+      "itemCaption": "",
+      "postageFlag": 1
+    }
+  ],
+  "YahooHits": [
+    {
+      "name": "【架空】貼るカイロ レギュラー 60枚",
+      "description": "これは架空のデータです。実在の商品・店舗とは無関係です。<br>",
+      "headLine": "",
+      "url": "https://store.shopping.yahoo.co.jp/yshop-a/kairo60.html",
+      "inStock": true,
+      "code": "yshop-a_kairo60",
+      "condition": "new",
+      "review": {
+        "count": 12,
+        "rate": 4.1
+      },
+      "price": 1380,
+      "priceLabel": {
+        "taxable": true,
+        "defaultPrice": 1380,
+        "discountedPrice": null,
+        "periodEnd": null
+      },
+      "point": {
+        "amount": 0,
+        "lyLimitedBonusAmount": 14
+      },
+      "shipping": {
+        "code": 2,
+        "name": "架空"
+      },
+      "janCode": "",
+      "seller": {
+        "sellerId": "yshop-a",
+        "name": "架空堂A"
+      }
+    },
+    {
+      "name": "【架空】貼るカイロ レギュラー 30枚",
+      "description": "これは架空のデータです。実在の商品・店舗とは無関係です。<br>",
+      "headLine": "",
+      "url": "https://store.shopping.yahoo.co.jp/yshop-b/kairo30.html",
+      "inStock": true,
+      "code": "yshop-b_kairo30",
+      "condition": "new",
+      "review": {
+        "count": 12,
+        "rate": 4.1
+      },
+      "price": 720,
+      "priceLabel": {
+        "taxable": true,
+        "defaultPrice": 720,
+        "discountedPrice": null,
+        "periodEnd": null
+      },
+      "point": {
+        "amount": 0,
+        "lyLimitedBonusAmount": 0
+      },
+      "shipping": {
+        "code": 1,
+        "name": "架空"
+      },
+      "janCode": "",
+      "seller": {
+        "sellerId": "yshop-b",
+        "name": "架空堂B"
+      }
+    },
+    {
+      "name": "【架空】貼るカイロ レギュラー 120枚入り",
+      "description": "これは架空のデータです。実在の商品・店舗とは無関係です。<br>",
+      "headLine": "",
+      "url": "https://store.shopping.yahoo.co.jp/yshop-c/kairo120.html",
+      "inStock": true,
+      "code": "yshop-c_kairo120",
+      "condition": "new",
+      "review": {
+        "count": 12,
+        "rate": 4.1
+      },
+      "price": 2400,
+      "priceLabel": {
+        "taxable": true,
+        "defaultPrice": 2400,
+        "discountedPrice": null,
+        "periodEnd": null
+      },
+      "point": {
+        "amount": 0,
+        "lyLimitedBonusAmount": 24
+      },
+      "shipping": {
+        "code": 3,
+        "name": "架空"
+      },
+      "janCode": "",
+      "seller": {
+        "sellerId": "yshop-c",
+        "name": "架空堂C"
+      }
+    },
+    {
+      "name": "【架空】貼るカイロ レギュラー 10枚 訳あり",
+      "description": "これは架空のデータです。実在の商品・店舗とは無関係です。<br>",
+      "headLine": "",
+      "url": "https://store.shopping.yahoo.co.jp/yshop-d/kairo10.html",
+      "inStock": true,
+      "code": "yshop-d_kairo10",
+      "condition": "used",
+      "review": {
+        "count": 12,
+        "rate": 4.1
+      },
+      "price": 300,
+      "priceLabel": {
+        "taxable": true,
+        "defaultPrice": 300,
+        "discountedPrice": null,
+        "periodEnd": null
+      },
+      "point": {
+        "amount": 0,
+        "lyLimitedBonusAmount": 0
+      },
+      "shipping": {
+        "code": 2,
+        "name": "架空"
+      },
+      "janCode": "",
+      "seller": {
+        "sellerId": "yshop-d",
+        "name": "架空堂D"
+      }
     }
   ]
 }

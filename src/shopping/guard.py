@@ -1,7 +1,8 @@
 # @owns 公開面（Web と リモートMCP）共通の流量保護（API 直列化・短期キャッシュ・IP別回数制限・クライアントIP）
 """service の手前に置く共通層。Web と MCP の両方がこの Gate を通るので、保護は二重実装にしない。
 
-- GuardedAdapter: 楽天 API への呼び出しをプロセス全体で 1 秒 1 回に直列化し、同じ条件はメモリに最大 10 分キャッシュする。
+- GuardedAdapter: モール API への呼び出しをプロセス全体でモールごとの間隔（楽天 1 秒・Yahoo 2.2 秒。アダプタの属性）に直列化し、
+  同じ条件はメモリに最大 10 分キャッシュする。モールごとに別の GuardedAdapter（Gate.adapters）。
 - RateLimiter: キー（IP）別の回数制限。
 - Gate.admit: 公開面の入口。入力検査（inputs）→ 回数制限の順で、弾いた入力は API 枠も回数も消費しない。
 - 時計と sleep は差し替え可能（試験で実時間を待たない）。
@@ -17,11 +18,9 @@ import threading
 import time
 from collections import OrderedDict, deque
 
-from .adapters.base import AdapterError, MarketplaceAdapter
+from .adapters.base import AdapterError, MarketplaceAdapter, adapter_attr
 from . import inputs
-from .adapters.mock import MockAdapter
 
-MIN_INTERVAL_SEC = 1.0         # 出典: 楽天ウェブサービスの利用上限（1 アプリ 1 秒 1 リクエスト）
 CACHE_TTL_SEC = 600            # 10 分（出典: 楽天の規約で価格・在庫のキャッシュは 24 時間以内。それよりずっと短い安全側）
 CACHE_MAX_ENTRIES = 300
 MAX_WAITERS = 6                # これを超えて待たせない（"busy" を返す）
@@ -39,17 +38,25 @@ class RateLimited(Exception):
         self.retry_after = retry_after
 
 
+_RELAYED = ("label", "short_label", "source", "max_hits", "page_size", "max_page", "min_interval_sec", "stop_kinds",
+            "empty_means_end", "ceiling_note", "is_item_url", "request_notes")
+
+
 class GuardedAdapter(MarketplaceAdapter):
     """inner Adapter を 1 秒 1 回に直列化し、同条件の結果を最大 CACHE_TTL_SEC 秒キャッシュする。"""
 
-    def __init__(self, inner: MarketplaceAdapter, *, min_interval: float = MIN_INTERVAL_SEC,
+    def __init__(self, inner: MarketplaceAdapter, *, min_interval: float | None = None,
                  ttl: float = CACHE_TTL_SEC, max_entries: int = CACHE_MAX_ENTRIES,
                  max_waiters: int = MAX_WAITERS, wait_timeout: float = WAIT_TIMEOUT_SEC,
                  clock=time.monotonic, sleep=time.sleep):
         self._inner = inner
         self.mall = getattr(inner, "mall", "")
-        self.is_mock = isinstance(inner, MockAdapter)
-        self._min_interval = min_interval
+        self.is_mock = bool(getattr(inner, "is_mock", False))
+        for name in _RELAYED:       # 包んでもモール別の属性（上限・流量・URL の形・表示名）は inner のまま見せる
+            if hasattr(inner, name):
+                setattr(self, name, getattr(inner, name))
+        # 最小間隔は inner のモールの値（楽天 1 秒・Yahoo 2.2 秒。出典は各アダプタ）。明示した時だけ上書き
+        self._min_interval = adapter_attr(inner, "min_interval_sec") if min_interval is None else min_interval
         self._ttl = min(float(ttl), 24 * 3600.0)
         self._max_entries = max_entries
         self._max_waiters = max_waiters
@@ -149,10 +156,21 @@ class RateLimiter:
 
 
 class Gate:
-    """Web と MCP が共有する入口。adapter（保護済み）と IP 別回数制限を持つ。"""
+    """Web と MCP が共有する入口。adapter（保護済み。楽天＝主）と、有効な全モールの保護済みアダプタ（adapters）と、IP 別回数制限を持つ。
+    モールごとに GuardedAdapter が別（直列化・キャッシュ・間隔はモール別）。"""
 
-    def __init__(self, adapter: MarketplaceAdapter, limiter: RateLimiter | None = None):
-        self.adapter = adapter if isinstance(adapter, GuardedAdapter) else GuardedAdapter(adapter)
+    def __init__(self, adapter: MarketplaceAdapter | None = None, limiter: RateLimiter | None = None, *,
+                 adapters: dict | None = None):
+        def guard(a):
+            return a if isinstance(a, GuardedAdapter) else GuardedAdapter(a)
+        others = {m: guard(a) for m, a in (adapters or {}).items()}
+        if adapter is None:         # adapters だけの指定: 楽天を主にする（無ければ先頭）
+            if not others:
+                raise ValueError("Gate needs an adapter")
+            adapter = others.get("rakuten") or next(iter(others.values()))
+        self.adapter = guard(adapter)
+        self.adapters: dict[str, GuardedAdapter] = {self.adapter.mall: self.adapter}
+        self.adapters.update({m: a for m, a in others.items() if m != self.adapter.mall})
         self.limiter = limiter or RateLimiter(limit=_env_int("RATE_LIMIT_PER_MIN", RATE_LIMIT_PER_MIN))
 
     def check(self, ip: str | None) -> None:
@@ -162,8 +180,10 @@ class Gate:
     def admit(self, ip: str | None, **fields) -> None:
         """公開面（Web と MCP）の入口。先に入力を検査し（不正なら inputs.InvalidInput）、通ったものだけ回数を数える。
         ロック取得・最小間隔のスリープ・API 呼び出しより前に置くので、弾いた入力は API 枠を消費しない。"""
+        malls = fields.pop("malls", None)
         inputs.validate(**fields)
-        self.check(ip)                                             # 1 呼び出し＝1 回（pages で重み付けしない。楽天側は直列化で守る）
+        inputs.check_malls(malls, list(self.adapters))             # 指定したモールが有効か（無効・未知は API を呼ぶ前に弾く）
+        self.check(ip)                                            # 1 呼び出し＝1 回（pages で重み付けしない。楽天側は直列化で守る）
 
 
 def _env_int(name: str, default: int) -> int:

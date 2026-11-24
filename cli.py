@@ -48,6 +48,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--mock", action="store_true", help="架空データを使う（既定。API を呼ばない）")
     g.add_argument("--live", action="store_true", help="実 API を呼ぶ（認証情報が要る。運営者の開発・試験用）")
+    p.add_argument("--malls", help="検索するモール（カンマ区切り。例: rakuten,yahoo）。省略で有効な全モール（Yahoo は鍵がある時・モックでは両方）")
     p.add_argument("--json", action="store_true", help="JSON で出力")
 
 
@@ -203,25 +204,26 @@ def render_compare(r: dict) -> None:
 
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    adapter = service.make_adapter(mock=True if args.mock else (False if args.live else None),
-                                   local_tool=True)
+    adapters = service.make_adapters(mock=True if args.mock else (False if args.live else None),
+                                     local_tool=True)
+    malls = None if args.malls is None else [m.strip() for m in args.malls.split(",")]
     if args.command == "search":
         result = service.search_products(
             args.keywords, ng_keyword=args.ng_keyword, min_price=args.min_price,
             max_price=args.max_price, sort=args.sort, pages=args.pages, start_page=args.start_page,
             max_results=args.max_results, include_terms=args.include, exclude_terms=args.exclude,
-            adapter=adapter)
+            adapters=adapters, malls=malls)
         render = render_search
     elif args.command == "compare":
         result = service.compare_offers(
             args.keywords, args.include, args.exclude, args.desired_quantity, args.basis,
             desired_quantity_max=args.desired_quantity_max, ng_keyword=args.ng_keyword, min_price=args.min_price, max_price=args.max_price,
-            sort=args.sort, pages=args.pages, start_page=args.start_page, adapter=adapter)
+            sort=args.sort, pages=args.pages, start_page=args.start_page, adapters=adapters, malls=malls)
         render = render_compare
     else:
         result = service.find_regular_item(args.regular_id, regulars_path=args.regulars,
                                            pages=args.pages, start_page=args.start_page,
-                                           adapter=adapter)
+                                           adapters=adapters, malls=malls)
         render = render_compare
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

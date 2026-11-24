@@ -23,8 +23,8 @@ from .http_json import fetch_json
 ENDPOINT = "https://shopping.yahooapis.jp/ShoppingWebService/V3/itemSearch"
 JST = timezone(timedelta(hours=9))
 PAGE_SIZE = 50                 # results の上限（1 ページ＝50 件に固定）
-RESULT_CEILING = 1000          # start + results - 1 がこの値までしか返さない（1000 件目まで）
-MAX_PAGE = RESULT_CEILING // PAGE_SIZE      # 20
+RESULT_CEILING = 1000          # 公式: start + results ≤ 1000（安全側にそのまま解釈。start=901・results=50 の 19 ページ目＝950 件目まで）
+MAX_PAGE = (RESULT_CEILING - PAGE_SIZE - 1) // PAGE_SIZE + 1      # start + results ≤ 1000 を満たす最後のページ＝19
 # 1 リクエストごとの間隔。公式の「1 分 30 回」「1 秒 1 回」の厳しい方（2 秒）に余裕を足した値
 MIN_INTERVAL_SEC = 2.2
 
@@ -146,6 +146,7 @@ def _norm(s: str) -> str:
 class YahooAdapter(MarketplaceAdapter):
     mall = "yahoo"
     label = "Yahoo!ショッピング"
+    short_label = "Yahoo"
     source = "Yahoo!ショッピング（Yahoo! JAPAN Webサービス）"
     max_hits = PAGE_SIZE
     page_size = PAGE_SIZE
@@ -160,6 +161,7 @@ class YahooAdapter(MarketplaceAdapter):
         self._client_id = client_id or ""
         self._opener = opener
         self._clock = clock or _now_jst
+        self.last_skipped = 0        # 直前の search で、読めずに捨てた hit の件数（結果の戻り値の HitList.skipped と同じ値）
 
     def __repr__(self) -> str:
         return "YahooAdapter(client_id=***)"
@@ -193,7 +195,7 @@ class YahooAdapter(MarketplaceAdapter):
                 or isinstance(page, bool) or not isinstance(page, int) or page < 1):
             raise AdapterError("invalid_request")
         start = (page - 1) * hits + 1
-        if start + hits - 1 > RESULT_CEILING:        # Yahoo は 1000 件目までしか返さない。越えるページは呼ばない
+        if start + hits > RESULT_CEILING:        # start + results ≤ 1000（Yahoo の上限）。越えるページは呼ばない
             raise AdapterError("invalid_request")
         params: dict = dict(query=keyword, results=hits, start=start, sort=SORT_MAP.get(sort, "-score"))
         if availability == 1:
@@ -205,6 +207,7 @@ class YahooAdapter(MarketplaceAdapter):
         req = self._build_request(params)
         data = fetch_json(req, opener=self._opener, kind_for_status=_status_kind)
         offers, count = self._parse_response(data)
+        self.last_skipped = offers.skipped
         terms = _norm(ng_keyword).split() if ng_keyword else []
         if terms:       # Yahoo に除外語の引数が無いので、商品名に除外語を含む候補はここで捨てる（api_count は API の値のまま）
             offers = _keep_without(offers, terms)

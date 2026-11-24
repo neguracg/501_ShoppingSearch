@@ -104,7 +104,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。"""
         if not public:
             return fn(*args, pages=pages, start_page=start_page,
-                      adapter=service.make_adapter(local_tool=True), **kw)
+                      adapters=service.make_adapters(local_tool=True), **kw)
         try:
             gate.admit(client_ip_var.get(), **check)
         except InvalidInput as exc:
@@ -114,9 +114,9 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
                 "kind": "rate_limited",
                 "message": f"短い時間に呼び出しが多すぎる。{exc.retry_after}秒ほど待ってからやり直すこと。"}}
         else:
-            out = fn(*args, pages=pages, start_page=start_page, adapter=gate.adapter, sleep=lambda s: None,
+            out = fn(*args, pages=pages, start_page=start_page, adapters=gate.adapters, sleep=lambda s: None,
                      limits=Limits(min_interval_sec=0), **kw)
-        out.update(mcp_credit_fields())
+        out.update(mcp_credit_fields(out.get("malls") or list(gate.adapters)))      # 使ったモール（無ければ有効な全モール）のクレジット
         return out
 
     @server.tool(
@@ -231,7 +231,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
     )
     def find_regular_item(regular_id: str, pages: int = DEFAULT_PAGES, start_page: int = 1) -> dict[str, Any]:
         return service.find_regular_item(regular_id, pages=pages, start_page=start_page,
-                                         adapter=service.make_adapter(local_tool=True))
+                                         adapters=service.make_adapters(local_tool=True))
 
     return server
 
