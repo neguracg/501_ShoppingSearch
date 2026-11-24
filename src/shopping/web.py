@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import service
+from .adapters.rakuten import RakutenAdapter
 from .config import load_credentials
 from .guard import Gate, RateLimited, client_ip_var, pick_client_ip
 from .inputs import MAX_PRICE, InvalidInput
@@ -24,7 +25,7 @@ from .orchestrator import Limits
 from .web_view import BASIS_UNUSED_NOTE, group_title, render
 
 PAGES = 1
-HITS = 30                      # 楽天の hits 上限（出典: 楽天 IchibaItem Search 仕様）。Web は 1 ページ分を画面に出す
+HITS = RakutenAdapter.max_hits    # 楽天の hits 上限（出典: 楽天 IchibaItem Search 仕様）。Web は 1 ページ分を画面に出す（モールごと。表示は HITS × モール数）
 WEB_GROUP_OFFERS_MAX = 10      # 比較画面の各グループ・不明候補の表示件数（画面の表示仕様。MCP・CLI は切らない）
 
 _SECURITY_HEADERS = {
@@ -46,7 +47,8 @@ def normalize_base_path(value: str | None) -> str:
 
 def _page(request: Request, name: str, status: int = 200, **ctx) -> HTMLResponse:
     base = request.app.state.base
-    return HTMLResponse(render(name, base, **ctx), status_code=status, headers=_SECURITY_HEADERS)
+    malls = list(request.app.state.gate.adapters)           # この公開面で使えるモール（Yahoo は鍵がある時だけ）
+    return HTMLResponse(render(name, base, malls=malls, **ctx), status_code=status, headers=_SECURITY_HEADERS)
 
 
 def _message(request: Request, status: int, heading: str, *paragraphs: str, headers=None):
@@ -169,8 +171,10 @@ def create_app(base_path: str | None = None, gate: Gate | None = None) -> FastAP
         if not result.get("ok"):
             kind = (result.get("error") or {}).get("kind", "")
             if kind in _BUSY_KINDS:
-                return _message(request, 503, "楽天側が混雑しています",
-                                "楽天市場からの応答が得られませんでした。しばらくしてからもう一度お試しください。",
+                multi = len(gate.adapters) > 1
+                return _message(request, 503, "モール側が混雑しています" if multi else "楽天側が混雑しています",
+                                ("各モールからの応答が得られませんでした。" if multi else "楽天市場からの応答が得られませんでした。")
+                                + "しばらくしてからもう一度お試しください。",
                                 headers={"Retry-After": "30"})
             if kind == "invalid_request":
                 return _message(request, 400, "入力を確認してください", "検索条件を確認してください。")

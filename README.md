@@ -29,6 +29,10 @@ RAKUTEN_ACCESS_KEY=...
 
 環境変数が優先、無ければ `.env`。モックだけなら認証情報は不要。
 
+Yahoo!ショッピングも検索に加える時だけ、`YAHOO_CLIENT_ID`（Yahoo! JAPAN デベロッパーネットワークの Client ID）を環境変数・`.env`・`.env.yahoo.local`（git 管理外。1 行 `YAHOO_CLIENT_ID=...`）のどれかに置く（この順に優先）。
+鍵が無ければ Yahoo は自動で無効＝楽天だけで動く（従来どおり）。モックは両方のモールを返す。`--malls rakuten,yahoo`（CLI）・`malls`（MCP）で検索するモールを指定できる。
+VPS の `.env` へ送る `ops/push_env_keys` は、既定では従来どおり楽天の 2 行だけ。Yahoo も送るのは `-IncludeYahoo` を付けた時だけ（公開面に Yahoo を載せると決めた後。本番の切り替えは別の判断）。
+
 ## 使い方（公開Web）
 
 本番: https://app.negura.website/kaimono/ （ログイン無し・誰でも使える。search / compare のみで、定番品は出さない）。
