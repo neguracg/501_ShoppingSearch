@@ -135,11 +135,11 @@ def test_offer_to_dict_exposes_yahoo_reference_fields():
 
 def test_shipping_title_conflict_uses_the_malls_own_name():
     y = yoffer("y1", "貼るカイロ 送料別 60枚", 1000, shipping_status="included")
-    assert "Yahooのデータでは送料込み" in service.shipping_title_conflict(y)
+    assert "Yahoo!ショッピングのデータでは送料込み" in service.shipping_title_conflict(y)
     r = make_offer("r1", "貼るカイロ 送料別 60枚", 1000, shipping_status="included")
     assert "楽天のデータでは送料込み" in service.shipping_title_conflict(r)
     note = service._shipping_conflict_note([r, y])
-    assert "楽天・Yahoo" in note
+    assert "楽天・Yahoo!ショッピング" in note
 
 
 def test_total_price_for_yahoo_follows_the_shipping_status_only():

@@ -111,7 +111,7 @@ def search_many(adapter, keywords: list[str], *, max_pages: int | None = None, s
             stat.pages_fetched += 1
             stat.received += len(offers)
             stats.total_received += len(offers)
-            skipped += getattr(offers, "skipped", 0)
+            skipped += _skipped_of(adapter, offers)
             for offer in offers:
                 key = (offer.mall, offer.mall_item_code)
                 existing = unique.get(key)
@@ -146,6 +146,14 @@ def search_many(adapter, keywords: list[str], *, max_pages: int | None = None, s
     stats.elapsed_sec = round(clock() - started, 1)    # 取得にかかった秒
     stats.per_mall = [_mall_stat(mall, stats, skipped)]
     return list(unique.values()), stats
+
+
+def _skipped_of(adapter, offers) -> int:
+    """読めずに捨てた hit の件数。戻り値のリストの skipped（HitList。包んでも残る）、無ければアダプタの last_skipped（直前の search の件数）。"""
+    n = getattr(offers, "skipped", None)
+    if n is None:
+        n = getattr(adapter, "last_skipped", 0)
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
 
 
 def _mall_stat(mall: str, stats: SearchStats, skipped: int) -> MallStat:

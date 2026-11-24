@@ -245,7 +245,7 @@ def _mall_notes(stats: SearchStats, used: dict, filters: dict) -> list[str]:
         lab = malls_mod.label(ms.mall)
         ad = used.get(ms.mall)
         if multi and ms.error:       # 片方のモールが全部失敗しても、もう片方の結果で比べる（全モールが失敗した時は error 応答）
-            others = "・".join(malls_mod.label(o.mall) for o in stats.per_mall if o is not ms and not o.error)
+            others = "・".join(malls_mod.short_label(o.mall) for o in stats.per_mall if o is not ms and not o.error)
             notes.append(f"{lab}は {ms.error} で取得できなかった（{others}だけで比較）")
         if ms.stopped_reason == "rate_limited" and ms.mall == "rakuten":
             notes.append("楽天APIの流量制限(429)で残りの検索を打ち切った。時間をおいて再実行すること。")

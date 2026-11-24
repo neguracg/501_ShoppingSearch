@@ -146,7 +146,7 @@ def _norm(s: str) -> str:
 class YahooAdapter(MarketplaceAdapter):
     mall = "yahoo"
     label = "Yahoo!ショッピング"
-    short_label = "Yahoo"
+    short_label = "Yahoo!ショッピング"      # 文中・モール名の短い呼び方（楽天は「楽天」）
     source = "Yahoo!ショッピング（Yahoo! JAPAN Webサービス）"
     max_hits = PAGE_SIZE
     page_size = PAGE_SIZE

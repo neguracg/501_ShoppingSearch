@@ -47,6 +47,14 @@ def test_default_adapters_by_kind(monkeypatch):
     assert "CID" not in repr(got)
 
 
+def test_environment_key_still_enables_yahoo_through_the_conftest_shield(monkeypatch):
+    real = RakutenAdapter("a", "b")
+    assert list(malls.default_adapters(real)) == ["rakuten"]           # conftest が鍵ファイルを隠している
+    monkeypatch.setenv("YAHOO_CLIENT_ID", "FROM_ENV_VAR")
+    got = malls.default_adapters(real)
+    assert list(got) == ["rakuten", "yahoo"] and "FROM_ENV_VAR" not in repr(got)
+
+
 def test_service_make_adapters_follows_make_adapter_and_mock_flag(monkeypatch):
     assert list(service.make_adapters(mock=True)) == ["rakuten", "yahoo"]
     monkeypatch.setattr(service, "make_adapter", lambda *a, **k: FakeAdapter({}))
@@ -147,6 +155,17 @@ def test_empty_page_is_not_the_end_for_yahoo_but_is_for_rakuten():
     rad = FakeAdapter(rpages)
     search_many(rad, ["a"], max_pages=2, **NOSLEEP)
     assert len(rad.calls) == 1
+
+
+def test_skipped_count_falls_back_to_the_adapters_last_skipped():
+    class Plain(FakeYahoo):                       # 素のリストを返し、last_skipped だけ持つアダプタ
+        last_skipped = 0
+
+        def search(self, keyword, **kw):
+            self.last_skipped = 2
+            return [yoffer("p1")], 1
+    _, stats = search_many(Plain({}), ["a"], **NOSLEEP)
+    assert stats.per_mall[0].skipped == 2
 
 
 def test_skipped_hits_are_counted_per_mall():
@@ -280,7 +299,7 @@ def test_one_mall_failing_note_and_comparison_continues():
     y = FakeYahoo({("ab", 1): AdapterError("rate_limited")})
     out = svc(adapters={"rakuten": r, "yahoo": y})
     assert out["ok"] and len(out["offers"]) == 1
-    assert "Yahoo!ショッピングは rate_limited で取得できなかった（楽天市場だけで比較）" in out["notes"]
+    assert "Yahoo!ショッピングは rate_limited で取得できなかった（楽天だけで比較）" in out["notes"]
     assert any("Yahoo!ショッピングの流量制限" in n for n in out["notes"])
     r2 = FakeAdapter({("ab", 1): AdapterError("http_403")})
     y2 = FakeYahoo({("ab", 1): ([yoffer("y1")], 1)})

@@ -110,7 +110,7 @@ def test_public_mcp_one_mall_failing_still_answers():
     from shopping.adapters.base import AdapterError
     ads["yahoo"] = FakeYahoo({(KW, 1): AdapterError("rate_limited")})
     out = mcp_call(gate_of(ads), "compare_offers", {"keywords": [KW]})
-    assert out["ok"] and any("Yahoo!ショッピングは rate_limited で取得できなかった（楽天市場だけで比較）" == n for n in out["notes"])
+    assert out["ok"] and any("Yahoo!ショッピングは rate_limited で取得できなかった（楽天だけで比較）" == n for n in out["notes"])
     assert out["credits"][1].startswith("Webサービス by Yahoo!")      # 使おうとしたモールのクレジット
 
 
@@ -181,7 +181,7 @@ def test_web_healthz_ignores_yahoo(monkeypatch):
 def test_cli_malls_rakuten_yahoo_mock_through(capsys):
     assert cli.run(["compare", KW, "--malls", "rakuten,yahoo", "--desired-quantity", "60", "--mock"]) == 0
     out = capsys.readouterr().out
-    assert "[Yahoo]" in out and "楽天市場: 取得 2 件" in out and "Yahoo!ショッピング: 取得 4 件" in out
+    assert "[Yahoo!ショッピング]" in out and "楽天市場: 取得 2 件" in out and "Yahoo!ショッピング: 取得 4 件" in out
     assert "クレジット: Webサービス by Yahoo! JAPAN （https://developer.yahoo.co.jp/sitemap/）" in out
     assert "クレジット: Supported by Rakuten Developers" in out
     assert "条件: Yahoo!ショッピングの商品ページで、選んだ色・サイズ・数量の価格が" in out

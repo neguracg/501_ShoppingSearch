@@ -93,7 +93,7 @@ class FakeYahoo(FakeAdapter):
 
     mall = "yahoo"
     label = "Yahoo!ショッピング"
-    short_label = "Yahoo"
+    short_label = "Yahoo!ショッピング"
     page_size = 50
     max_hits = 50
     max_page = 19
