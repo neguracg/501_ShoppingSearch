@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import pydantic_core
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from . import service
 from .credit import CREDIT_TEXT, mcp_credit_fields
@@ -121,6 +122,15 @@ _NOT_JUDGED = (
     "最終回答の前に商品名で照合すること。"
 )
 
+def as_tool_result(out: dict[str, Any]) -> CallToolResult:
+    """ツールの結果を、structuredContent は dict のまま・content[0].text は**空白なしの compact JSON**（同じキー順・UTF-8）で返す（WP20）。
+    SDK（mcp 2.3.0 の func_metadata._convert_to_content）は dict の結果を text にするとき indent=2 で整形する（空白だけで約 45% 大きい）ので、
+    SDK を変えずに、結果を CallToolResult で返して text をここで作る。直列化は SDK と同じ pydantic_core.to_json（fallback=str）で、
+    indent だけが違う（日本語は Unicode エスケープにしない UTF-8。NaN は null）。"""
+    text = pydantic_core.to_json(out, fallback=str).decode()
+    return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=out)
+
+
 _READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                              open_world_hint=True)
 
@@ -146,11 +156,11 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         return text.replace("。楽天は100ページ目=3000件まで", "。上限は楽天 100・Yahoo 19 ページ目まで", 1) + _MALLS_SENTENCE + more
 
     def invoke(fn, *args, check: dict, pages: int = DEFAULT_PAGES, start_page: int = 1,
-               **kw) -> dict[str, Any]:
-        """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。"""
+               **kw) -> CallToolResult:
+        """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。結果は as_tool_result（text は compact JSON）。"""
         if not public:
-            return fn(*args, pages=pages, start_page=start_page,
-                      adapters=service.make_adapters(local_tool=True), **kw)
+            return as_tool_result(fn(*args, pages=pages, start_page=start_page,
+                                     adapters=service.make_adapters(local_tool=True), **kw))
         try:
             gate.admit(client_ip_var.get(), **check)
         except InvalidInput as exc:
@@ -163,7 +173,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             out = fn(*args, pages=pages, start_page=start_page, adapters=gate.adapters, sleep=lambda s: None,
                      limits=Limits(min_interval_sec=0), **kw)
         out.update(mcp_credit_fields(out.get("malls") or list(gate.adapters)))      # 使ったモール（無ければ有効な全モール）のクレジット
-        return service.bulk_last(out)       # 追加したキーも件数の多い一覧より前に置く（WP18）
+        return as_tool_result(service.bulk_last(out))       # 追加したキーも件数の多い一覧より前に置く（WP18）
 
     @server.tool(
         name="search_products",
@@ -279,8 +289,8 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "id が不明な時は、マスタに無い旨のエラー(regulars_not_found)が返る。"),
     )
     def find_regular_item(regular_id: str, pages: int = DEFAULT_PAGES, start_page: int = 1) -> dict[str, Any]:
-        return service.find_regular_item(regular_id, pages=pages, start_page=start_page,
-                                         adapters=service.make_adapters(local_tool=True))
+        return as_tool_result(service.find_regular_item(regular_id, pages=pages, start_page=start_page,
+                                                        adapters=service.make_adapters(local_tool=True)))
 
     return server
 
