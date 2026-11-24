@@ -41,7 +41,8 @@ def _add_paging_args(p: argparse.ArgumentParser) -> None:
                    help=f"語ごとに取るページ数（1〜{MAX_PAGES}。既定 {DEFAULT_PAGES}＝{DEFAULT_PAGES * MAX_HITS} 件。1 ページ約 1 秒）")
     p.add_argument("--start-page", type=int, default=1, dest="start_page",
                    help=f"取り始めるページ（1〜{MAX_PAGES}。既定 1。続きは表示される『続き』のページ番号を指定）。"
-                        f"楽天は {MAX_PAGES} ページ目（3000 件）までしか返さない")
+                        f"楽天は {MAX_PAGES} ページ目（3000 件）までしか返さない。複数のモールを検索した時は、"
+                        "続きが要るモールだけを表示どおり --malls で指定する（--start-page は全モールに効く）")
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -130,9 +131,10 @@ def _print_stats(stats: dict) -> None:
         who = f"[{malls.short_label(k['mall'])}] " if len(pm) > 1 and k.get("mall") else ""
         err = f" エラー={k['error']}" if k["error"] else ""
         span = f"（{k['start_page']}〜{k['last_page']}ページ目）" if k.get("last_page") else ""
-        more = (f" / 続き: --start-page {k['next_page']}（残り約 {k['remaining']} 件）"
+        go = (f"--malls {k['mall']} " if len(pm) > 1 and k.get("mall") else "") + f"--start-page {k['next_page']}"   # 2 モール以上: 続きが要るモールだけ指定（start_page は全モールに効く）
+        more = (f" / 続き: {go}（残り約 {k['remaining']} 件）"
                 if k.get("next_page") and k.get("remaining") is not None
-                else f" / 続き: --start-page {k['next_page']}" if k.get("next_page") else "")
+                else f" / 続き: {go}" if k.get("next_page") else "")
         print(f"  - {who}{k['keyword']}: API件数 {k['api_count']} / 取得 {k['received']}{span}{err}{more}")
 
 

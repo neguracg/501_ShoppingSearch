@@ -63,6 +63,8 @@ def test_public_mcp_with_yahoo_texts_fit_and_mention_malls():
     assert "楽天市場・Yahoo!ショッピングの商品を検索・比較する" in instr
     assert "Webサービス" not in instr and "credits" in instr               # 使ったモールのクレジット全部（結果の credits）を添える
     assert "選択肢ごとの価格を確かめていない" in instr and "商品ページで確認を促す" in instr
+    assert "続きが要るモールだけを malls=['yahoo'] のように指定して start_page=N で呼ぶ" in instr           # 続きの案内（B3）
+    assert "続きが要るモールだけ malls で指定して start_page" in tools["search_products"].description
 
 
 def test_public_mcp_without_yahoo_keeps_the_old_texts():

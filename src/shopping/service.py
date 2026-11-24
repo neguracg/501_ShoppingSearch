@@ -293,20 +293,27 @@ def _paging_notes(stats: SearchStats, hits: int, multi: bool = False) -> list[st
     """全量と取得範囲、続きの取り方（語ごと）。利用者に全量と取得範囲を伝えるための材料。"""
     notes: list[str] = []
     if stats.stopped_reason == "time_limit":
-        notes.append("時間の上限で途中まで。取れた分だけ返した。続きは下記の start_page で呼ぶこと。")
+        notes.append("時間の上限で途中まで。取れた分だけ返した。続きは下記の" + ("モール（malls）と " if multi else " ") + "start_page で呼ぶこと。")
     more = [s for s in stats.per_keyword if s.next_page is not None]
 
     def who(s):
         return f"（{malls_mod.label(s.mall)}）" if multi else ""
+
+    def how(s):
+        """続きの呼び方。2 モール以上の時、start_page は全モールに効くので、続きが要るモールだけを malls で指定する。"""
+        return (f"malls=['{s.mall}'] を指定して " if multi else "") + f"start_page={s.next_page} で呼ぶ"
     for s in more:
         if s.pages_fetched:
             rest = f"（残り約 {s.remaining} 件）" if s.remaining is not None else ""
             notes.append(f"「{s.keyword}」{who(s)}はヒット {s.api_count} 件のうち {s.start_page}〜{s.last_page} ページ目の "
-                         f"{s.received} 件を取得{rest}。続きは start_page={s.next_page} で呼ぶ。")
+                         f"{s.received} 件を取得{rest}。続きは {how(s)}。")
         else:
-            notes.append(f"「{s.keyword}」{who(s)}は未取得。start_page={s.next_page} で呼ぶ。")
+            notes.append(f"「{s.keyword}」{who(s)}は未取得。{how(s)}。")
     if len(more) and len(stats.per_keyword) > 1:
         notes.append("続きを取る時は、続きが要る語だけを keywords に指定すること（他の語は同じページを取り直してしまう）。")
+    if len(more) and multi:
+        notes.append("start_page は全モールに効く。続きが要るモールだけを malls で指定すること"
+                     "（続きの無いモールまで呼ぶと、範囲外のページを要求して失敗する・同じページを取り直す）。")
     for s in stats.per_keyword:                  # 楽天は 100 ページ目で件数の天井。Yahoo は ceiling_note（_mall_notes）が案内する
         if _mall_attr(s.mall or "rakuten", "ceiling_note"):
             continue

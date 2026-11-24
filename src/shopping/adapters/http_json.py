@@ -3,6 +3,7 @@
 リダイレクトは追わない（URL に秘密が入るため）。モール固有の知識（エンドポイント・項目名）は持たない。"""
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 from urllib.error import HTTPError, URLError
@@ -47,8 +48,8 @@ def fetch_json(req: Request, *, opener=None, kind_for_status=http_kind,
         kind = "timeout" if isinstance(reason, (TimeoutError, socket.timeout)) else "network_error"
     except OSError:
         kind = "network_error"
-    except (TypeError, AttributeError):       # 応答が response として読めない形（文字列など）。アダプタは AdapterError だけを出す
-        kind = "unexpected_response"
+    except http.client.HTTPException:         # IncompleteRead・BadStatusLine・InvalidURL など（OSError の子ではない）。種別だけにする（InvalidURL は URL を本文に含み得る）
+        kind = "network_error"
     if kind is None and len(raw) > max_bytes:
         kind = "unexpected_response"
     if kind is None:

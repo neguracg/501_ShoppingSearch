@@ -1,5 +1,6 @@
 """WP17 U1: Yahoo!ショッピング Adapter（楽天のアダプタ試験 tests/test_rakuten_adapter.py の型）。"""
 import copy
+import http.client
 import json
 import os
 import socket
@@ -230,11 +231,25 @@ def test_unexpected_shapes(body):
     assert e.value.kind == "unexpected_response"
 
 
-def test_response_that_is_not_a_response_object_is_unexpected_response_not_a_crash():
-    ad, _ = make("a plain string")           # 応答が response として読めない形でも、アダプタは AdapterError だけを出す
-    with pytest.raises(AdapterError) as e:
-        ad.search("x")
-    assert e.value.kind == "unexpected_response"
+class _ReadFails(FakeResponse):
+    def read(self, n=-1):
+        raise http.client.IncompleteRead(b"partial SECRET", 10)
+
+
+@pytest.mark.parametrize("failure", [
+    http.client.BadStatusLine("SECRET line"),
+    http.client.InvalidURL("nonnumeric port: https://shopping.yahooapis.jp/?appid=SECRET"),
+    http.client.RemoteDisconnected("SECRET"),
+    _ReadFails(b""),                                   # 本文の読み取り中の IncompleteRead
+])
+def test_http_client_exceptions_become_network_error_for_both_malls(failure):
+    from shopping.adapters.rakuten import RakutenAdapter
+    for ad in (YahooAdapter(CLIENT_ID, opener=FakeOpener(failure), clock=CLOCK),
+               RakutenAdapter("APPID", "KEY", opener=FakeOpener(failure), clock=CLOCK)):
+        with pytest.raises(AdapterError) as e:
+            ad.search("x")
+        blob = " ".join([str(e.value), repr(e.value), str(e.value.__cause__), str(e.value.__context__ or "")])
+        assert e.value.kind == "network_error" and "SECRET" not in blob and "appid" not in blob.lower()
 
 
 @pytest.mark.parametrize("exc,kind", [

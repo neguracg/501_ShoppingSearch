@@ -157,6 +157,30 @@ def test_empty_page_is_not_the_end_for_yahoo_but_is_for_rakuten():
     assert len(rad.calls) == 1
 
 
+def test_continuation_notes_name_the_mall_when_two_malls_are_searched():
+    r = FakeAdapter({("ab", p): ([make_offer(f"r{p}-{i}") for i in range(30)], 124) for p in range(1, 4)})
+    y = FakeYahoo({("ab", 1): ([yoffer("y1"), yoffer("y2")], 2)})
+    out = svc(adapters={"rakuten": r, "yahoo": y}, pages=3)
+    notes = out["notes"]
+    assert any("楽天市場" in n and "malls=['rakuten'] を指定して start_page=4 で呼ぶ" in n for n in notes)
+    assert not any("malls=['yahoo']" in n for n in notes)               # 続きの無い Yahoo には続きを案内しない
+    assert any("続きが要るモールだけを malls で指定すること" in n for n in notes)
+    only = svc(adapter=FakeAdapter({("ab", p): ([make_offer(f"r{p}-{i}") for i in range(30)], 124) for p in range(1, 4)}), pages=3)
+    assert any("続きは start_page=4 で呼ぶ" in n for n in only["notes"]) and not any("malls=" in n for n in only["notes"])   # 1 モールは従来の文言
+
+
+def test_cli_continuation_names_the_mall_only_with_two_malls(capsys):
+    import cli
+    row = dict(keyword="k", mall="rakuten", api_count=124, received=90, error=None, start_page=1, last_page=3,
+               next_page=4, remaining=34)
+    base = dict(total_received=90, duplicates_removed=0, unique_offers=90, fetched_at="t", stopped_reason=None)
+    cli._print_stats(dict(base, per_keyword=[row], per_mall=[dict(mall="rakuten", fetched=90, api_count=124)]))
+    assert "続き: --start-page 4（残り約 34 件）" in capsys.readouterr().out
+    cli._print_stats(dict(base, per_keyword=[row], per_mall=[dict(mall="rakuten", fetched=90, api_count=124),
+                                                             dict(mall="yahoo", fetched=2, api_count=2)]))
+    assert "続き: --malls rakuten --start-page 4（残り約 34 件）" in capsys.readouterr().out
+
+
 def bare_yahoo(pages):
     """モールの属性を一切持たない偽物（mall が yahoo というだけ）。Yahoo の値（打ち切る種別・ページの上限）は mall 名から引かれる。"""
     ad = FakeAdapter(pages)

@@ -38,7 +38,7 @@ adapters/<mall>.py            … モール固有処理（rakuten・yahoo。上�
 models.py（Product / Offer） → quantity.py（数量の読み取り・単位換算） → pricing.py（語の絞り込み・単価・最安判定）
 ```
 
-モール固有の知識は adapter の中だけに置く（WP17: hits・ページの上限、リクエスト間隔、打ち切る種別、商品 URL の形、表示名、出典は `MarketplaceAdapter` のクラス属性〔`label`・`short_label`・`source`・`max_hits`・`page_size`・`max_page`・`min_interval_sec`・`stop_kinds`・`empty_means_end`・`ceiling_note`・`is_item_url`・`request_notes`〕。外は `adapter_attr` で引き、属性が無い偽物は楽天相当の既定）。Phase 3 以降は adapter を足すだけで済む形にする。クレジット・運営者表示の文言は `credit.py`、モール名から表示名・URL の形を引く表は `malls.REGISTRY`。
+モール固有の知識は adapter の中だけに置く（WP17: hits・ページの上限、リクエスト間隔、打ち切る種別、商品 URL の形、表示名、出典は `MarketplaceAdapter` のクラス属性〔`label`・`short_label`・`source`・`max_hits`・`page_size`・`max_page`・`min_interval_sec`・`stop_kinds`・`empty_means_end`・`ceiling_note`・`is_item_url`・`request_notes`〕。外は `adapter_attr` で引く。**属性を持たないアダプタ（試験の偽物・包んだ物）は `adapter.mall` から実クラスの属性を引き、未知のモールなら楽天の値**）。Phase 3 以降は adapter を足すだけで済む形にする。クレジット・運営者表示の文言は `credit.py`、モール名から表示名・URL の形を引く表は `malls.REGISTRY`。
 
 ## 4. データモデル（不明は null。推測で埋めない）
 
@@ -76,7 +76,7 @@ mall_unconfirmed（アダプタが付ける「確認済みにできない理由�
   - 税・状態・セール: `priceLabel.taxable` が true でなければ未確定理由 `price_tax_unknown`。`condition` が `new` でなければ `condition_not_new`（`condition` は応答の値をそのまま出す）。`priceLabel.discountedPrice` があれば `sale={discounted_price, period_end}`（参考）。
   - **選択肢の価格**: 検索 API に楽天の itemPriceMin/Max に当たる項目が無いので、**全 Yahoo 候補に未確定理由 `price_options_unchecked`**（`price_varies` は None のまま＝楽天の判定を変えない）。
   - URL: `https://store.shopping.yahoo.co.jp/<seller>/<item>.html` と `https://lohaco.yahoo.co.jp/store/<store>/item/<item>/` を ok、それ以外は `needs_review`（捨てない・作らない・改変しない）。hit 単位で読めない物（code が無い等）は捨てて数え、アダプタの `last_skipped`（と戻り値の `HitList.skipped`）に置き、注記に件数を出す。応答全体の形が違う時だけ `unexpected_response`。
-- Y6 エラー種別: 400→`bad_request`、401・403→`forbidden`（流量超過でも 403 が返り得る）、429→`rate_limited`、500・503→`server_error`（流量超過で HTML の 500 が返ることがある）、その他の HTTP は `http_<code>`、timeout・network_error・invalid_json・unexpected_response は楽天と同じ語。応答本文・URL・appid を例外に入れない。`rate_limited`・`server_error` はそのモールの残りの検索を打ち切る（再試行ループしない）。
+- Y6 エラー種別（通信部品 `http_json.fetch_json` は楽天と共通。`http.client.HTTPException`〔IncompleteRead・BadStatusLine・InvalidURL…〕は `network_error` にする）: 400→`bad_request`、401・403→`forbidden`（流量超過でも 403 が返り得る）、429→`rate_limited`、500・503→`server_error`（流量超過で HTML の 500 が返ることがある）、その他の HTTP は `http_<code>`、timeout・network_error・invalid_json・unexpected_response は楽天と同じ語。応答本文・URL・appid を例外に入れない。`rate_limited`・`server_error` はそのモールの残りの検索を打ち切る（再試行ループしない）。
 - Y7 流量: 1 リクエストごとに **2.2 秒以上**（公式の「1 分 30 回」と「1 秒 1 回」の厳しい方に余裕）。公開面では Yahoo 用の `GuardedAdapter`（プロセス全体で直列化。楽天とは別）を持つ。
 - 実測（2026-11-24。実応答 271 件）: shipping code 2＝157・1＝95・3＝19、point は lyLimited* だけ非 0、URL は全部商品ページの形（lohaco 形式 5 件を含む）、taxable 全部 true、condition 全部 new、description に `<br>`。既存の数量の読み取り（`parse_quantity`）は Yahoo の商品名でもそのまま読める。
 
@@ -90,6 +90,7 @@ mall_unconfirmed（アダプタが付ける「確認済みにできない理由�
   - **モール単位で並走**（スレッド 1 本ずつ。モール内は今の直列・モールごとの間隔）。1 モールだけの検索はスレッドを使わず従来どおり。候補は 1 つのリストに混ぜる（楽天が先）。重複排除は `(mall, mall_item_code)`＝同じ JAN・同じ商品名でもモール・商品コードが違えば別候補。間隔は `Limits.min_interval_sec` が正でアダプタの値がそれより大きい時だけモールごとに引き上げる（Yahoo 2.2 秒。公開面の 0 と楽天の値は変えない）。
   - 統計: `stats.per_mall`（各行 `mall`・`fetched`・`api_count`〔語ごとの和〕・`error`〔全部の語が失敗した時の最初の種別〕・`truncated`・`stopped_reason`・`skipped`）、`per_keyword[]` の各行に `mall`。結果に `malls`（使ったモール）・`source`（楽天だけの時は従来の文字列）・楽天だけでない時は `sources`（一覧）・Yahoo を使った時は `credits`（§11）。
   - 片方のモールの失敗は、もう片方の結果で比較を続け、notes に「<モール名>は <種別> で取得できなかった（<他のモール名>だけで比較）」（失敗した側はモールの日本語名、残った側は短い呼び名〔楽天・Yahoo!ショッピング〕。例: 「Yahoo!ショッピングは rate_limited で取得できなかった（楽天だけで比較）」「楽天市場は http_403 で取得できなかった（Yahoo!ショッピングだけで比較）」）。**全モールが失敗した時だけ今のエラー応答**（`error.kind` は最初に失敗したモール〔楽天が先〕の種別）。打ち切り（`rate_limited`・`server_error`）・読めない hit の件数・Yahoo の読み替え（sort・ng_keyword）・1000 件目の上限は notes に出す。
+- **続きの取り方（2 モール以上。WP17 独立レビュー B3）**: `start_page` は全モールに効くので、続きが要るモールだけを `malls=['<モール>']` で指定して `start_page=N` で呼ぶ。notes はモールごとに「続きは malls=['rakuten'] を指定して start_page=4 で呼ぶ」と書き、CLI は `続き: --malls rakuten --start-page 4`、INSTRUCTIONS（Yahoo 有効時）とその `search_products` の説明も同じ案内。1 モールだけの検索は従来の文言のまま。
 - ChatGPT へは整形済みの必要項目だけ返す（生レスポンスを渡さない）。
 
 ## 7. 数量の読み取り（quantity.py）

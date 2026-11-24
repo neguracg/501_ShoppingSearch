@@ -86,11 +86,16 @@ _YAHOO_INSTRUCTIONS = (
     "【モール】楽天市場に加えて Yahoo!ショッピングも検索する（malls=['rakuten','yahoo'] で指定。省略すると有効な全モール。無効・未知のモールは invalid_request）。"
     "Yahoo の候補は検索 API に選択肢（色・サイズ・数量）ごとの価格が無く、選択肢ごとの価格を確かめていないので、最安は『候補』として扱い、"
     "商品ページで確認を促すこと（確認済みの最安・注文案には入らず、provisional_unit_price と to_check に条件つきで出る）。"
+    "2 モール以上を検索して続きを取る時は、続きが要るモールだけを malls=['yahoo'] のように指定して start_page=N で呼ぶ"
+    "（start_page は全モールに効く。続きの無いモールまで呼ぶと範囲外のページで失敗する。各モールの続きの呼び方は notes に書かれる）。"
     "ポイント（points_amount）は参考値で総額から引かない。stats.per_mall はモール別の取得件数・api_count・エラー、"
     "片方のモールが失敗した時は notes に書かれる（もう片方で比べた結果）。"
     "回答の末尾には、使ったモールのクレジット全部（結果の credits。楽天は {credit}）を添えること。"
 )
 _MALLS_SENTENCE = "malls=rakuten・yahoo（省略=有効な全モール）。Yahoo の候補は選択肢ごとの価格が未確認で、最安にせず商品ページでの確認を促す。"
+
+
+_CONTINUE_SENTENCE = "複数モールの続きは、続きが要るモールだけ malls で指定して start_page で呼ぶ。"
 
 
 def instructions_for(malls) -> str:
@@ -126,11 +131,12 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         """ツール説明。Yahoo を含む時は楽天市場の語にモールを足し、malls の使い方と Yahoo の注意を1文足す（WP11 の 2000 字以内）。"""
         if not yahoo_on:
             return text
+        more = _CONTINUE_SENTENCE if text.startswith("楽天市場で商品を検索し") else ""      # search_products だけ（compare_offers は 2000 字に収めるため INSTRUCTIONS に任せる）
         text = text.replace("楽天市場で", "楽天市場・Yahoo!ショッピングで", 1)
         text = text.replace("（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
                             "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。",
                             "（既定は語ごとに3ページ。全量・続きの取り方は search_products と INSTRUCTIONS に従う）。", 1)     # compare_offers だけ（2000 字に収める）
-        return text.replace("。楽天は100ページ目=3000件まで", "。上限は楽天 100・Yahoo 19 ページ目まで", 1) + _MALLS_SENTENCE
+        return text.replace("。楽天は100ページ目=3000件まで", "。上限は楽天 100・Yahoo 19 ページ目まで", 1) + _MALLS_SENTENCE + more
 
     def invoke(fn, *args, check: dict, pages: int = DEFAULT_PAGES, start_page: int = 1,
                **kw) -> dict[str, Any]:
