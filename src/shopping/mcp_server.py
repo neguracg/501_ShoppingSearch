@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import pydantic_core
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from . import service
 from .credit import CREDIT_TEXT, mcp_credit_fields
@@ -50,6 +51,9 @@ _ORDER_GUIDE = (
     "（支払総額は payment_total がある時＝確認済みの案だけ）。"
     "quantity.readings（題名 low の読み）・quantity.caption_candidates（説明欄から読めたが採らなかった値）は候補で確定値ではなく、"
     "unit_price_unconfirmed_reasons に quantity_low がある単価は題名に食い違う数があり読みの1つを仮に使った値なので仮として伝える。"
+    "主グループ（groups[0]）の order_plans・to_check は最上位の comparison.order_plans・comparison.to_check と同じ候補なので、"
+    "中身は写さず札（ref＝『comparison.to_check[3]』のように最上位の何番目かと、mall・item_code・name・n だけ）で返す。"
+    "価格・送料・数量・確認状態・未確認理由・条件文（conditions）・URL は ref の先（最上位）を読む（他の数え語のグループの注文案は全項目のまま）。"
     "compare_offers の groups・unknown_offers は件数で切らず全件返す。"
 )
 # compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
@@ -118,6 +122,15 @@ _NOT_JUDGED = (
     "最終回答の前に商品名で照合すること。"
 )
 
+def as_tool_result(out: dict[str, Any]) -> CallToolResult:
+    """ツールの結果を、structuredContent は dict のまま・content[0].text は**空白なしの compact JSON**（同じキー順・UTF-8）で返す（WP20）。
+    SDK（mcp 2.3.0 の func_metadata._convert_to_content）は dict の結果を text にするとき indent=2 で整形する（空白だけで約 45% 大きい）ので、
+    SDK を変えずに、結果を CallToolResult で返して text をここで作る。直列化は SDK と同じ pydantic_core.to_json（fallback=str）で、
+    indent だけが違う（日本語は Unicode エスケープにしない UTF-8。NaN は null）。"""
+    text = pydantic_core.to_json(out, fallback=str).decode()
+    return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=out)
+
+
 _READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True,
                              open_world_hint=True)
 
@@ -143,11 +156,11 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
         return text.replace("。楽天は100ページ目=3000件まで", "。上限は楽天 100・Yahoo 19 ページ目まで", 1) + _MALLS_SENTENCE + more
 
     def invoke(fn, *args, check: dict, pages: int = DEFAULT_PAGES, start_page: int = 1,
-               **kw) -> dict[str, Any]:
-        """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。"""
+               **kw) -> CallToolResult:
+        """check は公開面の入力検査に渡す項目（guard.Gate.admit → inputs.validate）。結果は as_tool_result（text は compact JSON）。"""
         if not public:
-            return fn(*args, pages=pages, start_page=start_page,
-                      adapters=service.make_adapters(local_tool=True), **kw)
+            return as_tool_result(fn(*args, pages=pages, start_page=start_page,
+                                     adapters=service.make_adapters(local_tool=True), **kw))
         try:
             gate.admit(client_ip_var.get(), **check)
         except InvalidInput as exc:
@@ -160,7 +173,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             out = fn(*args, pages=pages, start_page=start_page, adapters=gate.adapters, sleep=lambda s: None,
                      limits=Limits(min_interval_sec=0), **kw)
         out.update(mcp_credit_fields(out.get("malls") or list(gate.adapters)))      # 使ったモール（無ければ有効な全モール）のクレジット
-        return service.bulk_last(out)       # 追加したキーも件数の多い一覧より前に置く（WP18）
+        return as_tool_result(service.bulk_last(out))       # 追加したキーも件数の多い一覧より前に置く（WP18）
 
     @server.tool(
         name="search_products",
@@ -229,15 +242,15 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "desired_quantity は希望量の下限で basis の単位で解釈する（例: basis=ml なら 18000 は 18L）。desired_quantity_max は上限（任意）。"
             "希望量を指定すると、同じ商品の n 個注文の組み合わせを order_plans・cheapest_order・to_check に返す。"
             + _ORDER_POINTER +
-            "結果は groups（basis の次元が同じ候補。単位価格の安い順。個の時は count_unit ごと。最上位は主グループ main_count_unit、他は groups[]）・"
+            "結果は groups（basis の次元が同じ候補。単位価格の安い順。個の時は count_unit ごと。最上位は主グループ main_count_unit、他は groups[]。groups[0] の注文案は最上位への札 ref）・"
             "unknown_offers（basis の量が読めず単価を出せない候補）・"
             "cheapest_price / cheapest_unit_price / cheapest_total / cheapest_for_quantity・order_plans / cheapest_order / to_check・caveats・notes。"
-            "cheapest_* が null の理由は必ず caveats に書いてあるので、利用者へそのまま伝えること。"
-            "各候補の unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量の読み違いの疑いがある候補"
-            "（最安からは外し、候補としては残す）。"
+            "cheapest_* が null の理由は必ず caveats に書いてあるので、そのまま伝えること。"
+            "unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量誤読の疑いがある候補"
+            "（最安から外すが候補には残す）。"
             "quantity.confidence が high でない候補（unknown_offers など単価不明）と unit_price_outlier が true の候補は、"
             "最安・おすすめとして示さない。示す時は理由と『商品ページで確認』を添えること。"
-            "cheapest_price は商品価格だけの最安で送料は含まない。送料が不明な候補を『送料込み最安』と呼ばない。"
+            "cheapest_price は送料を含まない商品価格の最安（送料不明を『送料込み最安』と呼ばない）。"
             "keywords・ng_keyword・min_price/max_price・sort・pages は search_products と同じ"
             "（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
             "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。"),
@@ -276,8 +289,8 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "id が不明な時は、マスタに無い旨のエラー(regulars_not_found)が返る。"),
     )
     def find_regular_item(regular_id: str, pages: int = DEFAULT_PAGES, start_page: int = 1) -> dict[str, Any]:
-        return service.find_regular_item(regular_id, pages=pages, start_page=start_page,
-                                         adapters=service.make_adapters(local_tool=True))
+        return as_tool_result(service.find_regular_item(regular_id, pages=pages, start_page=start_page,
+                                                        adapters=service.make_adapters(local_tool=True)))
 
     return server
 
