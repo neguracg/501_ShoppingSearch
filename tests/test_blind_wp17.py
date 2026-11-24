@@ -347,7 +347,7 @@ def test_y5_unreadable_hit_is_dropped_not_fatal():
     assert [o.mall_item_code for o in offers] == [r[1] for r in FIXTURE_ROWS if r[0] != 2]
 
 
-@pytest.mark.parametrize("body", [[], {}, {"hits": "x"}, {"hits": {"a": 1}}, "just a string"],
+@pytest.mark.parametrize("body", [[], {}, {"hits": "x"}, {"hits": {"a": 1}}, b'"just a string"'],   # str は FakeOpener が JSON 本文に包まないので、JSON の文字列本文を bytes で渡す
                          ids=["list", "no_hits", "hits_str", "hits_dict", "str"])
 def test_y5_wrong_overall_shape_is_unexpected_response(body):
     # Y5: 応答全体の形が違う時だけ unexpected_response
