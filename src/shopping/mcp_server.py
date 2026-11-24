@@ -208,6 +208,8 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             + _SEARCH_GUIDE +
             "最安を決めたい時は compare_offers を使う。"),
     )
+    # 3ツールとも実際は as_tool_result の CallToolResult を返すが、戻り値の注釈は dict のままにする
+    # （注釈から outputSchema が作られるため。SDK 更新時に注釈を変えると outputSchema が変わる。WP20）
     def search_products(keywords: list[str], ng_keyword: str | None = None,
                         min_price: int | None = None, max_price: int | None = None,
                         sort: str = "standard", pages: int = DEFAULT_PAGES, start_page: int = 1,
