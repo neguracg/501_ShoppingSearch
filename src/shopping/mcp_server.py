@@ -27,6 +27,10 @@ _ORDER_GUIDE = (
     "回答は次の3つで組み立てる: (1) comparison.cheapest_order＝確認済み（数量が商品名から high・価格が選択肢で変わらない・外れ値でない・送料込み）の中で、量の指定なら注文額が最小、範囲指定（desired_quantity_max あり）なら注文の単価が最小の注文"
     "（数え語のグループが複数ある時は主グループ main_count_unit の結果。他のグループは groups[] の中）、(2) to_check＝逆転し得る候補と条件（理由が複数でも合算した1つの条件。『注文全体の送料が X円未満なら安い』『商品名の数量の選択肢が X円以下なら安い』"
     "『説明欄の数量が正しければ』）、(3) 確定に足りない条件（caveats）。"
+    "結果は結論が先・件数の多い一覧（to_check の全件・order_plans・groups・unknown_offers）が後の順で、comparison.shortlist が (1)(2) の上位の見取り図"
+    "（confirmed_cheapest＝確認済みの最安と、未確認の候補 unconfirmed_candidates＝安くなり得る候補をモールを問わず安い順に上位だけ〔to_check に出る各モールの先頭の 1 件は必ず入る。換算の仮定で残した候補は確認済みの最安より高いこともあるので conditions を読む〕）。"
+    "結果が長い時は shortlist・cheapest_order・caveats から先に読む。『最安』と呼べるのは確認済みだけで、確認済みの最安が1モールでも、"
+    "別のモールの未確認の安い候補を落とさず、仮単価・未確認理由・条件（conditions）を添えて並べて示し、商品ページで確認するよう伝える。"
     "price_varies が true の候補（選択肢で価格が変わる。表示価格は商品名の数量の選択肢の価格とは限らない）を『○枚○円』と断定しない。"
     "送料無料ライン（3,980円など）を仮定しない（送料別の候補は注文額が大きくても送料込みにしない）。発送目安・送料額は API に無いので"
     "『商品ページで確認』と書く（あす楽の印 asuraku_flag がある候補だけ、そのことを書いてよい）。"
@@ -156,7 +160,7 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             out = fn(*args, pages=pages, start_page=start_page, adapters=gate.adapters, sleep=lambda s: None,
                      limits=Limits(min_interval_sec=0), **kw)
         out.update(mcp_credit_fields(out.get("malls") or list(gate.adapters)))      # 使ったモール（無ければ有効な全モール）のクレジット
-        return out
+        return service.bulk_last(out)       # 追加したキーも件数の多い一覧より前に置く（WP18）
 
     @server.tool(
         name="search_products",

@@ -372,6 +372,17 @@ def _qty_label(o: Offer) -> str:
     return f"{format_amount(q.count_total)}{q.count_unit}"          # 内容量は付けない（10枚×0.096m のような読み取りの癖を条件文に持ち込まない）
 
 
+def _plan_label(plan: OrderPlan) -> str:
+    """条件文に入れる『商品名の数量』の読み。候補の題名から読めた総数（_qty_label）、無ければ（題名 low・数量なしの換算の仮定の案）
+    換算の仮定の案（counter_assumed）が置いた 1 個あたりの数量（注文量÷n・数え語。例 60枚）、それも無ければ空（条件文は括弧ごと省く。BUGLOG 2026-11-25 の空括弧）。"""
+    label = _qty_label(plan.offer)
+    if label:
+        return label
+    if "counter_assumed" in plan.reasons and plan.count_unit and plan.n and plan.order_quantity:     # 数え語の換算で注文量が数え語の数
+        return f"{format_amount(round(plan.order_quantity / plan.n, 1))}{plan.count_unit}"
+    return ""
+
+
 def _assumed_reasons(reasons: list[str]) -> list[str]:
     """換算の仮定を置いた案の理由（counter_basis.py）。数量が読めない（quantity_unknown）は仮定で置き換え、送料の理由の前に counter_assumed を入れる。"""
     base = [r for r in reasons if r not in ("quantity_unknown", "quantity_low")]       # 題名 low の仮の数量はここで仮定に置き換える（Q20）
@@ -441,7 +452,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
         elif r == "measure_from_caption":
             pre.append(f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）、")
         elif r == "quantity_low":
-            pre.append(f"題名に食い違う数がある。{_qty_label(o)}なら、")
+            lab = _qty_label(o)
+            pre.append(f"題名に食い違う数がある。{lab}なら、" if lab else "題名に食い違う数がある。")
         elif r == "counter_assumed":
             pre.append(f"{plan.notes.get(r, '')}、")
         elif r == "pack_content_differs":
@@ -460,7 +472,7 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
     threshold = None
     body = ""
     if money:
-        label = _qty_label(o)
+        lp = f"（{_plan_label(plan)}）" if _plan_label(plan) else ""      # 数量の読みが無い時は括弧ごと省く（空括弧にしない）
         has_ship = any(r.startswith("shipping") for r in money)
         has_var = "price_varies" in money
         kind = "送料別" if "shipping_separate" in money else "送料不明"
@@ -469,7 +481,7 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
             x = math.ceil(limit)
             if has_ship and has_var:
                 threshold = x
-                body = (f"商品名の数量（{label}）の選択肢の価格×{plan.n}個＋送料の合計が {x:,}円未満ならこちらが安い{basis_txt}"
+                body = (f"商品名の数量{lp}の選択肢の価格×{plan.n}個＋送料の合計が {x:,}円未満ならこちらが安い{basis_txt}"
                         f"（{kind}。価格幅 {o.price_min:,}〜{o.price_max:,}円・表示価格 {o.price:,}円は最小の選択肢の価格。送料額は API に無いので商品ページで確認）")
             elif has_ship:
                 threshold = x - plan.order_total
@@ -477,15 +489,15 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                         f"送料額は API に無いので商品ページで確認）{basis_txt}")
             else:
                 threshold = max(x - 1, 0) // plan.n if not by_unit else math.ceil(limit / plan.n) - 1
-                body = (f"商品名の数量（{label}）の選択肢の価格が {threshold:,}円以下ならこちらが安い{basis_txt}"
+                body = (f"商品名の数量{lp}の選択肢の価格が {threshold:,}円以下ならこちらが安い{basis_txt}"
                         f"（価格幅 {o.price_min:,}〜{o.price_max:,}円。表示価格 {o.price:,}円は最小の選択肢の価格）")
         else:
             if has_ship and has_var:
-                body = f"{kind}で選択肢の価格も変わる。商品名の数量（{label}）の選択肢の価格と送料が確定すれば確認済みになる（価格幅 {o.price_min:,}〜{o.price_max:,}円）"
+                body = f"{kind}で選択肢の価格も変わる。商品名の数量{lp}の選択肢の価格と送料が確定すれば確認済みになる（価格幅 {o.price_min:,}〜{o.price_max:,}円）"
             elif has_ship:
                 body = f"{kind}。送料が確定すれば確認済みになる（送料額は API に無いので商品ページで確認）"
             else:
-                body = f"商品名の数量（{label}）の選択肢の価格が確認できれば確認済みになる（価格幅 {o.price_min:,}〜{o.price_max:,}円）"
+                body = f"商品名の数量{lp}の選択肢の価格が確認できれば確認済みになる（価格幅 {o.price_min:,}〜{o.price_max:,}円）"
     if money:
         text = "".join(pre) + body
     else:                                         # 金額に関わる理由が無い時は、それぞれ単独の文
@@ -493,7 +505,8 @@ def _conditions(plan: OrderPlan, best: OrderPlan | None, by_unit: bool = False) 
                                      "（説明欄が 1 パックあたりの記述のこともある）",
                  "quantity_from_caption": f"説明欄『{ev}』の数量が正しければ（{CAPTION_NOTE}）",
                  "measure_from_caption": f"説明欄『{ev}』の内容量が正しければ（{MEASURE_NOTE}）",
-                 "quantity_low": f"題名に食い違う数がある。{_qty_label(o)}なら（{LOW_NOTE}）。商品ページで確認",
+                 "quantity_low": (f"題名に食い違う数がある。{_qty_label(o)}なら（{LOW_NOTE}）。商品ページで確認" if _qty_label(o)
+                                  else f"題名に食い違う数がある（{LOW_NOTE}）。商品ページで確認"),
                  "counter_assumed": f"{plan.notes.get('counter_assumed', '')}、この商品を{plan.n}個注文すると "
                                     f"{format_amount(round(plan.order_quantity, 1))}{plan.count_unit or ''}相当・{plan.order_total:,}円"
                                     "（換算の仮定。商品ページで確認）",
