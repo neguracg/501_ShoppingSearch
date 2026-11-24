@@ -154,7 +154,7 @@ class YahooAdapter(MarketplaceAdapter):
     min_interval_sec = MIN_INTERVAL_SEC
     stop_kinds = ("rate_limited", "server_error")       # 流量超過。再試行ループしない
     empty_means_end = False      # ng_keyword で捨てて空になったページを、検索の終わりと取り違えない
-    ceiling_note = f"Yahoo は {RESULT_CEILING} 件目まで"
+    ceiling_note = f"Yahoo!ショッピングは {RESULT_CEILING} 件目まで（API の上限）"
     is_item_url = staticmethod(is_item_url)
 
     def __init__(self, client_id: str, *, opener=None, clock=None):

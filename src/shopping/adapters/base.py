@@ -21,13 +21,34 @@ class AdapterError(Exception):
         return f"AdapterError({self.kind!r})"
 
 
+_MISSING = object()
+_BY_MALL: dict[str, type] = {}      # モール名 → 本物のアダプタのクラス（サブクラスの定義時に登録。モックは除く）
+
+
+def mall_class(mall: str) -> type | None:
+    """モール名から本物のアダプタのクラス（属性の既定を引く元）。"""
+    if mall and mall not in _BY_MALL:
+        from . import rakuten, yahoo  # noqa: F401  (登録のため読み込む)
+    return _BY_MALL.get(mall)
+
+
 def adapter_attr(adapter, name: str):
-    """モール別の属性を引く。属性を持たないアダプタ（試験の偽物・包んだ物）は、楽天相当の既定（MarketplaceAdapter の値）。"""
-    return getattr(adapter, name, getattr(MarketplaceAdapter, name))
+    """モール別の属性を引く。属性を持たないアダプタ（試験の偽物・包んだ物）は、そのモール（adapter.mall）の本物のクラスの値
+    （例: mall が yahoo なら Yahoo の打ち切る種別・ページの上限）、モールが分からなければ楽天相当の既定（MarketplaceAdapter の値）。"""
+    value = getattr(adapter, name, _MISSING)
+    if value is not _MISSING:
+        return value
+    cls = mall_class(getattr(adapter, "mall", "") or "")
+    return getattr(cls or MarketplaceAdapter, name)
 
 
 class MarketplaceAdapter(ABC):
     """モールごとの値（上限・流量・URL の形・表示名）はサブクラスの属性に持つ。外（orchestrator・guard・web・service）は属性を引くだけ。"""
+    def __init_subclass__(cls, **kw):
+        super().__init_subclass__(**kw)
+        if "mall" in cls.__dict__ and cls.__dict__["mall"] and not cls.__dict__.get("is_mock"):
+            _BY_MALL[cls.__dict__["mall"]] = cls
+
     mall: str = ""
     label: str = ""                       # 利用者に見せるモール名
     short_label: str = ""                 # 文中で「〇〇のデータでは」と言う時の短い名前

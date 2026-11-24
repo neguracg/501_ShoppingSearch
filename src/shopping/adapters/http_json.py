@@ -47,6 +47,8 @@ def fetch_json(req: Request, *, opener=None, kind_for_status=http_kind,
         kind = "timeout" if isinstance(reason, (TimeoutError, socket.timeout)) else "network_error"
     except OSError:
         kind = "network_error"
+    except (TypeError, AttributeError):       # 応答が response として読めない形（文字列など）。アダプタは AdapterError だけを出す
+        kind = "unexpected_response"
     if kind is None and len(raw) > max_bytes:
         kind = "unexpected_response"
     if kind is None:

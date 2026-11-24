@@ -157,6 +157,35 @@ def test_empty_page_is_not_the_end_for_yahoo_but_is_for_rakuten():
     assert len(rad.calls) == 1
 
 
+def bare_yahoo(pages):
+    """モールの属性を一切持たない偽物（mall が yahoo というだけ）。Yahoo の値（打ち切る種別・ページの上限）は mall 名から引かれる。"""
+    ad = FakeAdapter(pages)
+    ad.mall = "yahoo"
+    return ad
+
+
+@pytest.mark.parametrize("kind", ["rate_limited", "server_error"])
+def test_bare_fake_named_yahoo_stops_the_mall_like_the_real_one(kind):
+    ad = bare_yahoo({("ab", 1): AdapterError(kind), ("cd", 1): ([yoffer("c1")], 1)})
+    out = svc(adapters={"yahoo": ad}, keywords=("ab", "cd"))
+    assert out["ok"] is False and out["error"]["kind"] == kind and [k for k, _ in ad.calls] == ["ab"]
+    r = FakeAdapter({("cd", 1): ([make_offer("r1")], 1)})
+    both = svc(adapters={"rakuten": r, "yahoo": bare_yahoo({("ab", 1): AdapterError(kind)})}, keywords=("ab", "cd"))
+    assert both["ok"] and len(r.calls) == 2           # 打ち切るのはそのモールだけ（楽天は 2 語とも呼ぶ）
+    guarded = GuardedAdapter(bare_yahoo({}))
+    assert guarded.stop_kinds == ("rate_limited", "server_error") and guarded.max_page == 19 and guarded._min_interval == 2.2
+
+
+def test_bare_fake_named_yahoo_gets_the_ceiling_note_when_the_range_is_beyond():
+    ad = bare_yahoo({("ab", p): ([yoffer(f"y{p}")], 5000) for p in range(1, 20)})
+    out = svc(adapters={"yahoo": ad}, keywords=("ab",), start_page=18, pages=5)
+    assert [kw["page"] for _, kw in ad.calls] == [18, 19]
+    assert "Yahoo!ショッピングは 1000 件目まで（API の上限）" in out["notes"]
+    far = bare_yahoo({})
+    out = svc(adapters={"yahoo": far}, keywords=("ab",), start_page=30, pages=2)
+    assert far.calls == [] and out["ok"] and "Yahoo!ショッピングは 1000 件目まで（API の上限）" in out["notes"]
+
+
 def test_skipped_count_falls_back_to_the_adapters_last_skipped():
     class Plain(FakeYahoo):                       # 素のリストを返し、last_skipped だけ持つアダプタ
         last_skipped = 0
@@ -324,7 +353,7 @@ def test_yahoo_request_notes_and_ceiling_note_and_skipped_note():
     out = svc(adapters={"yahoo": y}, sort="+reviewCount", ng_keyword="ほげ", pages=19)
     notes = out["notes"]
     assert "Yahoo はこの並び順に無いため標準順" in notes and "Yahoo は商品名で除外" in notes
-    assert "Yahoo は 1000 件目まで" in notes
+    assert "Yahoo!ショッピングは 1000 件目まで（API の上限）" in notes
     assert "Yahoo!ショッピングの応答のうち、読めない 2 件を捨てた。" in notes
     assert out["stats"]["per_keyword"][0]["next_page"] is None and out["stats"]["per_mall"][0]["truncated"] is True
 

@@ -255,9 +255,9 @@ def _mall_notes(stats: SearchStats, used: dict, filters: dict) -> list[str]:
             notes.append(f"{lab}が server_error を返したため、残りの検索を打ち切った。時間をおいて再実行すること。")
         if ms.skipped:
             notes.append(f"{lab}の応答のうち、読めない {ms.skipped} 件を捨てた。")
-        if ad is not None:
-            notes.extend(ad.request_notes(sort=filters.get("sort", "standard"), ng_keyword=filters.get("ng_keyword"))
-                         if hasattr(ad, "request_notes") else [])
+        cls = malls_mod.REGISTRY.get(ms.mall)       # 検索条件の読み替えの注記はモールのクラスから（包んだ・偽物のアダプタでも同じ）
+        if cls is not None:
+            notes.extend(cls.request_notes(ad, sort=filters.get("sort", "standard"), ng_keyword=filters.get("ng_keyword")))
         ceiling_note = _mall_attr(ms.mall, "ceiling_note")
         if ceiling_note and any(s.mall == ms.mall and s.truncated and s.next_page is None for s in stats.per_keyword):
             notes.append(ceiling_note)

@@ -100,7 +100,7 @@ class FakeYahoo(FakeAdapter):
     min_interval_sec = 2.2
     stop_kinds = ("rate_limited", "server_error")
     empty_means_end = False
-    ceiling_note = "Yahoo は 1000 件目まで"
+    ceiling_note = "Yahoo!ショッピングは 1000 件目まで（API の上限）"
 
     def request_notes(self, *, sort="standard", ng_keyword=None):
         from shopping.adapters.yahoo import YahooAdapter

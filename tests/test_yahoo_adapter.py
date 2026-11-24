@@ -230,6 +230,13 @@ def test_unexpected_shapes(body):
     assert e.value.kind == "unexpected_response"
 
 
+def test_response_that_is_not_a_response_object_is_unexpected_response_not_a_crash():
+    ad, _ = make("a plain string")           # 応答が response として読めない形でも、アダプタは AdapterError だけを出す
+    with pytest.raises(AdapterError) as e:
+        ad.search("x")
+    assert e.value.kind == "unexpected_response"
+
+
 @pytest.mark.parametrize("exc,kind", [
     (http_error(400), "bad_request"),
     (http_error(401), "forbidden"),

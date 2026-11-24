@@ -42,6 +42,9 @@ _RELAYED = ("label", "short_label", "source", "max_hits", "page_size", "max_page
             "empty_means_end", "ceiling_note", "is_item_url", "request_notes")
 
 
+_RELAYED_METHODS = ("is_item_url", "request_notes")
+
+
 class GuardedAdapter(MarketplaceAdapter):
     """inner Adapter を 1 秒 1 回に直列化し、同条件の結果を最大 CACHE_TTL_SEC 秒キャッシュする。"""
 
@@ -52,9 +55,11 @@ class GuardedAdapter(MarketplaceAdapter):
         self._inner = inner
         self.mall = getattr(inner, "mall", "")
         self.is_mock = bool(getattr(inner, "is_mock", False))
-        for name in _RELAYED:       # 包んでもモール別の属性（上限・流量・URL の形・表示名）は inner のまま見せる
+        for name in _RELAYED:       # 包んでもモール別の属性（上限・流量・URL の形・表示名）は inner のまま見せる（偽物は adapter.mall の本物の値）
             if hasattr(inner, name):
                 setattr(self, name, getattr(inner, name))
+            elif name not in _RELAYED_METHODS:
+                setattr(self, name, adapter_attr(inner, name))
         # 最小間隔は inner のモールの値（楽天 1 秒・Yahoo 2.2 秒。出典は各アダプタ）。明示した時だけ上書き
         self._min_interval = adapter_attr(inner, "min_interval_sec") if min_interval is None else min_interval
         self._ttl = min(float(ttl), 24 * 3600.0)
