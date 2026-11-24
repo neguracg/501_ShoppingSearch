@@ -421,6 +421,22 @@ def bulk_last(out: dict) -> dict:
     return {**head, **{k: out[k] for k in _BULK_TOP_KEYS if k in out}}
 
 
+def _plan_ref(d: dict, path: str, index: int) -> dict:
+    """最上位の注文案・to_check の要素 d（comparison.<path>[index]）を指す短い札（WP19）。中身は写さず、どれを指すか（ref）と
+    読み手が見分ける最小の ID（mall・item_code・name・n）だけ。詳細（価格・送料・数量・確認状態・未確認理由・条件文・URL）は ref の先で読む。"""
+    return {"ref": f"comparison.{path}[{index}]", "mall": d.get("mall"), "item_code": d.get("item_code"),
+            "name": d.get("name"), "n": d.get("n")}
+
+
+def _group_plans(g_list: list, top_list: list, top_dicts: list[dict], path: str) -> list[dict] | None:
+    """グループの注文案・to_check が最上位と**同じ list**（主グループ。pricing.compare が同じ物を最上位に置く）なら、
+    その要素を最上位への札（_plan_ref）にして返す。同じでなければ None（呼び出し側が通常の dict を作る）。
+    同じ内容を最上位と groups[0] の両方に完全に写すと、応答の 23〜30% が複製になる（WP19。ブリッジ#10）。"""
+    if not g_list or g_list is not top_list:
+        return None
+    return [_plan_ref(d, path, i) for i, d in enumerate(top_dicts)]
+
+
 def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
                         group_offers_max: int | None = None) -> dict:
     """group_offers_max: groups[].offers と unknown_offers を先頭何件で切るか。None は切らない（MCP・CLI）。
@@ -433,6 +449,7 @@ def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
         return None if o is None else offer_to_dict(o, known_urls)
     cheapest_order = None if c.cheapest_order is None else order_plan_to_dict(c.cheapest_order)
     to_check = [to_check_to_dict(t) for t in c.to_check]
+    order_plans = [order_plan_to_dict(p) for p in c.order_plans]
     has_order = bool(c.order_plans or c.to_check or c.cheapest_order)      # 希望量を指定した比較（注文案がある）だけ
     return {
         "basis": c.basis,
@@ -447,12 +464,14 @@ def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
         "caveats": list(c.caveats),
         "notes": list(c.notes),
         "to_check": to_check,
-        "order_plans": [order_plan_to_dict(p) for p in c.order_plans],
+        "order_plans": order_plans,
         "groups": [{"basis": g.basis, "dimension": g.dimension, "count_unit": g.count_unit, "count": len(g.offers),
                     "cheapest_unit_price": one(g.cheapest_unit_price),
-                    "order_plans": [order_plan_to_dict(p) for p in g.order_plans],
+                    "order_plans": _group_plans(g.order_plans, c.order_plans, order_plans, "order_plans")
+                    or [order_plan_to_dict(p) for p in g.order_plans],
                     "cheapest_order": None if g.cheapest_order is None else order_plan_to_dict(g.cheapest_order),
-                    "to_check": [to_check_to_dict(t) for t in g.to_check],
+                    "to_check": _group_plans(g.to_check, c.to_check, to_check, "to_check")
+                    or [to_check_to_dict(t) for t in g.to_check],
                     "offers": [offer_to_dict(o, known_urls) for o in cut(g.offers)]}
                    for g in c.groups],
         "unknown_count": len(c.unknown_offers),

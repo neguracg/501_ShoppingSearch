@@ -89,7 +89,7 @@ Claude・Codex など他の MCP クライアントも同じ URL を登録すれ�
 
 ## 使い方（MCP サーバー）
 
-ツールは `search_products` / `compare_offers` / `find_regular_item` の3つ。stdio で起動する。`compare_offers` は `desired_quantity`（希望量の下限）と `desired_quantity_max`（上限・任意）を受け、注文の組み合わせを `comparison.order_plans`・`cheapest_order`・`to_check` に返す（公開の `{BASE}/mcp` も同じ）。結果は結論が先・件数の多い一覧（`groups` など）が後の順で、`comparison.shortlist` が確認済みの最安と安くなり得る未確認の候補（モールを問わず上位5件）の見取り図（WP18。SPEC §8 Q25）。
+ツールは `search_products` / `compare_offers` / `find_regular_item` の3つ。stdio で起動する。`compare_offers` は `desired_quantity`（希望量の下限）と `desired_quantity_max`（上限・任意）を受け、注文の組み合わせを `comparison.order_plans`・`cheapest_order`・`to_check` に返す（公開の `{BASE}/mcp` も同じ）。結果は結論が先・件数の多い一覧（`groups` など）が後の順で、`comparison.shortlist` が確認済みの最安と安くなり得る未確認の候補（モールを問わず上位5件）の見取り図（WP18。SPEC §8 Q25）。主グループ（`groups[0]`）の `order_plans`・`to_check` は最上位と同じ中身なので、全項目ではなく最上位の同じ要素への札（`ref`・`mall`・`item_code`・`name`・`n`）だけを返す（WP19。SPEC §8 Q26。候補・情報は最上位で全部読める）。
 
 ```
 set PYTHONPATH=src

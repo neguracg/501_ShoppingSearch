@@ -72,7 +72,7 @@ def test_public_mcp_without_yahoo_keeps_the_old_texts():
     assert instr == mcp_server.INSTRUCTIONS
     for name in ("search_products", "compare_offers"):
         assert "Yahoo" not in tools[name].description
-    assert (len(tools["search_products"].description), len(tools["compare_offers"].description)) == (1852, 1968)
+    assert (len(tools["search_products"].description), len(tools["compare_offers"].description)) == (1852, 1971)
     assert "malls" in tools["compare_offers"].input_schema["properties"]         # 引数自体はある（指定すると有効でなければ invalid_request）
 
 

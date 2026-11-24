@@ -58,8 +58,8 @@ def walk_offers(d):
 
 def walk_plans(c):
     plans = list(c["order_plans"]) + list(c["to_check"]) + ([c["cheapest_order"]] if c["cheapest_order"] else [])
-    for g in c["groups"]:
-        plans += g["order_plans"] + g["to_check"] + ([g["cheapest_order"]] if g["cheapest_order"] else [])
+    for g in c["groups"]:        # 主グループの order_plans・to_check は最上位への札（ref。WP19）なので数えない（中身は最上位で走査済み）
+        plans += [x for x in g["order_plans"] + g["to_check"] if "ref" not in x] + ([g["cheapest_order"]] if g["cheapest_order"] else [])
     return plans
 
 

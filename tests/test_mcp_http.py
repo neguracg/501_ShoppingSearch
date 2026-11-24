@@ -256,7 +256,9 @@ def test_public_compare_returns_order_plans_for_a_desired_range():
     c = d["comparison"]
     assert d["ok"] and d["desired_quantity_max"] == 12000 and c["cheapest_order"]["confirmed"] is True
     assert c["cheapest_for_quantity"]["item_code"] == c["cheapest_order"]["item_code"]
-    assert c["groups"][0]["order_plans"] == c["order_plans"]
+    # WP19: 主グループ（groups[0]）の注文案は最上位と同じ物なので、中身は写さず最上位への札（ref）にする
+    assert [x["ref"] for x in c["groups"][0]["order_plans"]] == [f"comparison.order_plans[{i}]" for i in range(len(c["order_plans"]))]
+    assert [x["item_code"] for x in c["groups"][0]["order_plans"]] == [x["item_code"] for x in c["order_plans"]]
 
 
 def many_pages(n_per_page=30, pages_n=3, total=None, keyword="洗濯洗剤"):

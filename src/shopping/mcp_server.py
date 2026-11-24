@@ -50,6 +50,9 @@ _ORDER_GUIDE = (
     "（支払総額は payment_total がある時＝確認済みの案だけ）。"
     "quantity.readings（題名 low の読み）・quantity.caption_candidates（説明欄から読めたが採らなかった値）は候補で確定値ではなく、"
     "unit_price_unconfirmed_reasons に quantity_low がある単価は題名に食い違う数があり読みの1つを仮に使った値なので仮として伝える。"
+    "主グループ（groups[0]）の order_plans・to_check は最上位の comparison.order_plans・comparison.to_check と同じ候補なので、"
+    "中身は写さず札（ref＝『comparison.to_check[3]』のように最上位の何番目かと、mall・item_code・name・n だけ）で返す。"
+    "価格・送料・数量・確認状態・未確認理由・条件文（conditions）・URL は ref の先（最上位）を読む（他の数え語のグループの注文案は全項目のまま）。"
     "compare_offers の groups・unknown_offers は件数で切らず全件返す。"
 )
 # compare_offers の説明に入れる要点（全文は INSTRUCTIONS。ツール説明は WP11 の試験で 2000 字以内に収める）
@@ -229,15 +232,15 @@ def build_server(*, public: bool = False, gate: Gate | None = None) -> MCPServer
             "desired_quantity は希望量の下限で basis の単位で解釈する（例: basis=ml なら 18000 は 18L）。desired_quantity_max は上限（任意）。"
             "希望量を指定すると、同じ商品の n 個注文の組み合わせを order_plans・cheapest_order・to_check に返す。"
             + _ORDER_POINTER +
-            "結果は groups（basis の次元が同じ候補。単位価格の安い順。個の時は count_unit ごと。最上位は主グループ main_count_unit、他は groups[]）・"
+            "結果は groups（basis の次元が同じ候補。単位価格の安い順。個の時は count_unit ごと。最上位は主グループ main_count_unit、他は groups[]。groups[0] の注文案は最上位への札 ref）・"
             "unknown_offers（basis の量が読めず単価を出せない候補）・"
             "cheapest_price / cheapest_unit_price / cheapest_total / cheapest_for_quantity・order_plans / cheapest_order / to_check・caveats・notes。"
-            "cheapest_* が null の理由は必ず caveats に書いてあるので、利用者へそのまま伝えること。"
-            "各候補の unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量の読み違いの疑いがある候補"
-            "（最安からは外し、候補としては残す）。"
+            "cheapest_* が null の理由は必ず caveats に書いてあるので、そのまま伝えること。"
+            "各候補の unit_price_outlier が true なのは、単価が groups の中央値の 1/10 未満で数量誤読の疑いがある候補"
+            "（最安から外す）。"
             "quantity.confidence が high でない候補（unknown_offers など単価不明）と unit_price_outlier が true の候補は、"
             "最安・おすすめとして示さない。示す時は理由と『商品ページで確認』を添えること。"
-            "cheapest_price は商品価格だけの最安で送料は含まない。送料が不明な候補を『送料込み最安』と呼ばない。"
+            "cheapest_price は送料を含まない商品価格の最安（送料不明を『送料込み最安』と呼ばない）。"
             "keywords・ng_keyword・min_price/max_price・sort・pages は search_products と同じ"
             "（既定は語ごとに3ページ=90件。全量は stats.per_keyword[].api_count で、利用者に全量と取得範囲を伝えること。"
             "続きは next_page を start_page にして呼ぶ。楽天は100ページ目=3000件まで）。"),
