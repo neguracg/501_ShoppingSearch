@@ -349,10 +349,10 @@ def search_products(keywords, *, ng_keyword: str | None = None, min_price: int |
     notes = _base_notes(kept, stats, mock, hits, paging_notes=paging_notes, used=used, filters=filters) + term_notes
     if len(shown) < len(kept):
         notes.append(f"候補 {len(kept)} 件のうち先頭 {len(shown)} 件だけ返した（max_results）。")
-    return {"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
-            "include_terms": inc, "exclude_terms": exc,
-            "stats": _stats_to_dict(stats), "returned": len(shown),
-            "offers": [offer_to_dict(o) for o in shown], "notes": notes}
+    return bulk_last({"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
+                      "include_terms": inc, "exclude_terms": exc,
+                      "stats": _stats_to_dict(stats), "returned": len(shown),
+                      "offers": [offer_to_dict(o) for o in shown], "notes": notes})
 
 
 def order_plan_to_dict(p: OrderPlan) -> dict:
@@ -379,18 +379,64 @@ def to_check_to_dict(t: ToCheck) -> dict:
     return dict(order_plan_to_dict(t.plan), conditions=[dict(c) for c in t.conditions])
 
 
+# 確認済みの最安と並べて見せる「未確認だが安くなり得る候補」の上位件数（WP18。全件は to_check）
+SHORTLIST_TOP = 5
+_SHORTLIST_READING = (
+    "confirmed_cheapest は確認済み（数量・価格・送料込みの条件を満たす）注文の最安で、無ければ null。"
+    "unconfirmed_candidates は確認済みではないが confirmed_cheapest より安くなり得る候補（確認済みが無い時は未確認の注文案）を"
+    "モールを問わず安い順に上位だけ並べたもので、全件は to_check。『最安』と呼べるのは確認済みだけ。"
+    "未確認の候補は観測価格・仮単価・未確認理由・逆転条件（conditions）を添えて confirmed_cheapest と並べて示し、商品ページで確認するよう伝える。")
+def _shortlist(cheapest_order: dict | None, to_check: list[dict]) -> dict:
+    """上位の見取り図（WP18。SPEC §8 Q25）。cheapest_order と to_check の dict を**そのまま**（全キー）写すだけで、新しい判定を持たない
+    （確認済みの判定・最安の選び方・to_check の並びと条件は pricing のまま。単価・注文額の種類のキーが組で揃う＝Q21・Q23 の一貫性を壊さない）。
+    to_check は pricing が安い順に並べた物をそのまま先頭から使う。"""
+    return {
+        "confirmed_cheapest": None if cheapest_order is None else dict(cheapest_order),
+        "unconfirmed_candidates": [dict(t, conditions=[dict(c) for c in t.get("conditions") or []])
+                                   for t in to_check[:SHORTLIST_TOP]],
+        "unconfirmed_count": len(to_check),
+        "reading": _SHORTLIST_READING,
+    }
+
+
+# 結果の dict は「先頭から読む AI が結論に当たる」順に並べる（WP18）。件数の多い一覧（comparison・offers）を最後に回す
+# （長い結果が途中で切り詰められる時、結論・caveats・notes が先に失われないように。値は変えず並びだけ）
+_BULK_TOP_KEYS = ("comparison", "offers")
+
+
+def bulk_last(out: dict) -> dict:
+    """件数の多い一覧のキーを最後へ回した新しい dict（他のキーの順は保つ）。MCP が付ける credits などの後からも使える。"""
+    head = {k: v for k, v in out.items() if k not in _BULK_TOP_KEYS}
+    return {**head, **{k: out[k] for k in _BULK_TOP_KEYS if k in out}}
+
+
 def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
                         group_offers_max: int | None = None) -> dict:
     """group_offers_max: groups[].offers と unknown_offers を先頭何件で切るか。None は切らない（MCP・CLI）。
-    Web 画面だけが表示のために指定する（web.WEB_GROUP_OFFERS_MAX）。count / unknown_count は常に全件数。"""
+    Web 画面だけが表示のために指定する（web.WEB_GROUP_OFFERS_MAX）。count / unknown_count は常に全件数。
+    キーの順は結論が先（cheapest_*・cheapest_order・shortlist・caveats・notes）、件数の多い to_check・order_plans・groups・unknown_offers が後。"""
     def cut(offers):
         return offers if group_offers_max is None else offers[:group_offers_max]
 
     def one(o: Offer | None):
         return None if o is None else offer_to_dict(o, known_urls)
+    cheapest_order = None if c.cheapest_order is None else order_plan_to_dict(c.cheapest_order)
+    to_check = [to_check_to_dict(t) for t in c.to_check]
+    has_order = bool(c.order_plans or c.to_check or c.cheapest_order)      # 希望量を指定した比較（注文案がある）だけ
     return {
         "basis": c.basis,
         "basis_label": c.basis_label,
+        "main_count_unit": c.main_count_unit,
+        "cheapest_price": one(c.cheapest_price),
+        "cheapest_unit_price": one(c.cheapest_unit_price),
+        "cheapest_total": one(c.cheapest_total),
+        "cheapest_for_quantity": one(c.cheapest_for_quantity),
+        "cheapest_order": cheapest_order,
+        "shortlist": _shortlist(cheapest_order, to_check) if has_order else None,
+        "caveats": list(c.caveats),
+        "notes": list(c.notes),
+        "to_check": to_check,
+        "order_plans": [order_plan_to_dict(p) for p in c.order_plans],
         "groups": [{"basis": g.basis, "dimension": g.dimension, "count_unit": g.count_unit, "count": len(g.offers),
                     "cheapest_unit_price": one(g.cheapest_unit_price),
                     "order_plans": [order_plan_to_dict(p) for p in g.order_plans],
@@ -398,18 +444,8 @@ def _comparison_to_dict(c: Comparison, known_urls: list[str] | None = None,
                     "to_check": [to_check_to_dict(t) for t in g.to_check],
                     "offers": [offer_to_dict(o, known_urls) for o in cut(g.offers)]}
                    for g in c.groups],
-        "unknown_offers": [offer_to_dict(o, known_urls) for o in cut(c.unknown_offers)],
         "unknown_count": len(c.unknown_offers),
-        "cheapest_price": one(c.cheapest_price),
-        "main_count_unit": c.main_count_unit,
-        "cheapest_unit_price": one(c.cheapest_unit_price),
-        "cheapest_total": one(c.cheapest_total),
-        "cheapest_for_quantity": one(c.cheapest_for_quantity),
-        "order_plans": [order_plan_to_dict(p) for p in c.order_plans],
-        "cheapest_order": None if c.cheapest_order is None else order_plan_to_dict(c.cheapest_order),
-        "to_check": [to_check_to_dict(t) for t in c.to_check],
-        "caveats": list(c.caveats),
-        "notes": list(c.notes),
+        "unknown_offers": [offer_to_dict(o, known_urls) for o in cut(c.unknown_offers)],
     }
 
 
@@ -453,11 +489,12 @@ def _compare_flow(keywords, include_terms, exclude_terms, desired_quantity, basi
         comparison.caveats.append(conflict)
     notes = _base_notes(offers, stats, mock, hits, shipping_conflict=False,
                          paging_notes=paging_notes, used=used, filters=filters) + comparison.notes
-    return {"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
-            "include_terms": inc, "exclude_terms": exc, "desired_quantity": desired_quantity,
-            "desired_quantity_max": desired_quantity_max, "basis": comparison.basis, "stats": _stats_to_dict(stats),
-            "comparison": _comparison_to_dict(comparison, known_urls, group_offers_max),
-            "notes": notes}
+    return bulk_last({"ok": True, **_source_fields(used), "mock": mock, "keywords": _validate_keywords(keywords),
+                      "include_terms": inc, "exclude_terms": exc, "desired_quantity": desired_quantity,
+                      "desired_quantity_max": desired_quantity_max, "basis": comparison.basis,
+                      "stats": _stats_to_dict(stats),
+                      "comparison": _comparison_to_dict(comparison, known_urls, group_offers_max),
+                      "notes": notes})
 
 
 def compare_offers(keywords, include_terms=None, exclude_terms=None, desired_quantity=None,
@@ -511,4 +548,4 @@ def find_regular_item(regular_id: str, *, regulars_path=None, pages: int | None 
                         hits=hits, limits=limits,
                         sleep=sleep, filters={}, known_urls=reg.known_urls, adapters=adapters, malls=malls)
     out["regular"] = _regular_info(reg)
-    return out
+    return bulk_last(out)
