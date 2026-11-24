@@ -156,6 +156,10 @@ def test_mcp_result_orders_credit_notes_and_conclusions_before_the_big_lists():
     for first in ('"shortlist"', '"caveats"', '"cheapest_order"'):
         assert text.index(first) < text.index('"groups"')
     assert text.index('"credit') < text.index('"comparison"')
+    # 呼び出し側が読むのは structuredContent でなくテキスト（content[0].text）の可能性もある: そちらも同じ順
+    body = resp.json()["result"]["content"][0]["text"]
+    for first in ('"shortlist"', '"caveats"', '"cheapest_order"', '"notes"'):
+        assert body.index(first) < body.index('"groups"'), first
     assert d["comparison"]["shortlist"]["unconfirmed_candidates"][0]["mall"] == "yahoo"
 
 
